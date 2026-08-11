@@ -1,0 +1,14 @@
+# OS/Sync
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editor
+.vscode/
+*.swp
+
+# Local server misc
+__pycache__/
+*.pyc
+
+# 個人フォルダ選択の再現用ダミー等が増えた場合はここに追記
