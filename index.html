@@ -346,6 +346,7 @@
             <button class="btn-icon" id="refreshBtn" title="再読み込み">⟳</button>
             <button class="btn-ghost" id="installBtn" hidden>📲 インストール</button>
           </div>
+          <input type="file" id="folderInput" webkitdirectory multiple accept=".txt" hidden>
           <div class="status-line" id="statusLine"></div>
 
           <div class="list-scroll" id="listScroll">
@@ -379,6 +380,7 @@
 
   const pickBtn = document.getElementById('pickBtn');
   const refreshBtn = document.getElementById('refreshBtn');
+  const folderInput = document.getElementById('folderInput');
   const backBtn = document.getElementById('backBtn');
   const folderField = document.getElementById('folderField');
   const statusLine = document.getElementById('statusLine');
@@ -591,23 +593,63 @@
   })();
 
   // ---------- folder picking ----------
+  const SUPPORTS_DIR_PICKER = 'showDirectoryPicker' in window;
+
   async function pickFolder(){
-    if (!('showDirectoryPicker' in window)){
-      alert('お使いのブラウザはフォルダ選択に対応していません。Chrome または Edge でこのファイルを開いてください。');
+    if (SUPPORTS_DIR_PICKER){
+      try {
+        const handle = await window.showDirectoryPicker({ mode: 'read' });
+        await saveHandle(handle);
+        await loadFolder(handle);
+      } catch (e){
+        if (e.name !== 'AbortError') statusLine.textContent = 'フォルダの選択に失敗しました。';
+      }
       return;
     }
-    try {
-      const handle = await window.showDirectoryPicker({ mode: 'read' });
-      await saveHandle(handle);
-      await loadFolder(handle);
-    } catch (e){
-      if (e.name !== 'AbortError') statusLine.textContent = 'フォルダの選択に失敗しました。';
-    }
+    // Android等 File System Access API 非対応ブラウザ向けフォールバック。
+    // OneDriveアプリが導入済みなら、選択画面から OneDrive 内のフォルダにも入れる。
+    folderInput.click();
   }
+
+  async function loadFromFileList(fileList){
+    statusLine.textContent = '読み込み中…';
+    listScroll.innerHTML = '';
+
+    const firstPath = fileList[0] && fileList[0].webkitRelativePath;
+    folderField.textContent = firstPath ? firstPath.split('/')[0] : '選択したフォルダ';
+
+    const records = [];
+    let skipped = 0;
+
+    for (const file of fileList){
+      if (!/\.txt$/i.test(file.name)) continue;
+      try {
+        const text = await file.text();
+        const rec = parseRecord(file.name, text);
+        if (rec) records.push(rec);
+        else skipped++;
+      } catch (e){
+        skipped++;
+      }
+    }
+
+    renderList(records, skipped);
+  }
+
+  folderInput.addEventListener('change', (e) => {
+    const files = e.target.files;
+    if (files && files.length) loadFromFileList(files);
+    folderInput.value = ''; // 同じフォルダを選び直せるようにリセット
+  });
 
   pickBtn.addEventListener('click', pickFolder);
   refreshBtn.addEventListener('click', () => {
-    if (currentHandle) loadFolder(currentHandle);
+    if (SUPPORTS_DIR_PICKER){
+      if (currentHandle) loadFolder(currentHandle);
+    } else {
+      // ハンドルを保持できないため、再読み込みは選び直しになる
+      folderInput.click();
+    }
   });
 
   // ---------- PWA: service worker registration ----------
@@ -642,8 +684,10 @@
 
   // ---------- restore last folder on startup ----------
   async function restore(){
-    if (!('showDirectoryPicker' in window)){
-      statusLine.textContent = 'このブラウザはフォルダ選択 API に対応していません（Chrome / Edge 推奨）。';
+    if (!SUPPORTS_DIR_PICKER){
+      // Android等: フォルダの永続アクセスができないため毎回選び直しになる。
+      // その旨を一度だけ案内する。
+      statusLine.textContent = '「フォルダを選択」から毎回フォルダを選んでください（このブラウザでは前回の選択を記憶できません）。';
       return;
     }
     let handle;
