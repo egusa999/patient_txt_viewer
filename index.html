@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>病棟テキストビューア</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#2E4A6B">
@@ -31,6 +31,9 @@
   }
   *{box-sizing:border-box;}
   html,body{height:100%;}
+  html{
+    overscroll-behavior-x:none; /* 横スワイプでのブラウザ「戻る」誤操作を防止 */
+  }
   body{
     margin:0;
     background:
@@ -38,14 +41,25 @@
       var(--bg);
     color:var(--ink);
     font-family:'Zen Kaku Gothic New', 'Hiragino Kaku Gothic ProN', sans-serif;
-    min-height:100vh;
+    min-height:100dvh;
     display:flex;
     justify-content:center;
-    padding:28px 16px 60px;
+    overscroll-behavior-x:none;
+    padding:
+      max(12px, env(safe-area-inset-top))
+      max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
   }
   .app{
     width:100%;
     max-width:720px;
+    display:flex;
+    flex-direction:column;
+    min-height:100%;
+  }
+  @media (min-width:641px){
+    body{ padding:28px 16px 60px; }
   }
   .brand{
     display:flex;
@@ -80,12 +94,14 @@
   .scene{
     perspective:2200px;
     position:relative;
-    min-height:70vh;
+    flex:1;
+    min-height:0;
   }
   .flip-card{
     position:relative;
     width:100%;
-    min-height:70vh;
+    height:100%;
+    min-height:60vh;
     transform-style:preserve-3d;
     transition:transform .68s cubic-bezier(.62,.08,.24,1);
   }
@@ -321,6 +337,42 @@
 
   ::-webkit-scrollbar{ width:8px; }
   ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:8px; }
+
+  /* ---- mobile: maximize usable area, shrink type ---- */
+  @media (max-width:640px){
+    .brand{ margin:0 2px 8px; gap:7px; }
+    .brand .ring-dots span{ width:5px; height:5px; }
+    .brand h1{ font-size:16px; }
+    .brand .sub{ font-size:9px; letter-spacing:.04em; }
+
+    .face-inner{ padding:12px 12px 12px 26px; }
+    .face::before{ width:16px; }
+    .face::before{
+      background-position:center 18px;
+    }
+
+    .toolbar{ gap:6px; margin-bottom:8px; }
+    .btn-primary{ padding:8px 11px; font-size:12px; }
+    .btn-ghost{ padding:7px 10px; font-size:11px; }
+    .btn-icon{ width:30px; height:30px; font-size:13px; }
+    .folder-field{ padding:7px 9px; font-size:10.5px; flex-basis:140px; }
+    .status-line{ font-size:10px; margin-bottom:8px; min-height:13px; }
+
+    .ward-group{ margin-bottom:10px; border-radius:10px; }
+    .ward-head{ padding:7px 10px; font-size:11.5px; }
+    .ward-head .count{ font-size:9.5px; }
+    .room-row{ padding:8px 10px; gap:8px; }
+    .room-badge{ font-size:11px; padding:4px 6px; min-width:50px; }
+    .room-meta .pid{ font-size:10px; }
+    .room-meta .demo{ font-size:11.5px; }
+    .chev{ font-size:14px; }
+    .empty-state{ padding:16px 10px; font-size:11.5px; margin-top:10px; }
+
+    .detail-head{ margin-bottom:8px; gap:6px; }
+    .chip{ font-size:10px; padding:4px 8px; }
+    .detail-pid{ font-size:10px; margin:0 2px 8px; }
+    .detail-body{ font-size:12px; line-height:1.7; padding:10px 10px 16px; border-radius:9px; }
+  }
 </style>
 </head>
 <body>
@@ -377,6 +429,19 @@
 <script>
 (function(){
   "use strict";
+
+  // ---------- history trap ----------
+  // Android等のシステム「戻る」ジェスチャーや横フリックで、
+  // このアプリより前のページ（index.htmlより前）まで戻ってしまわないようにする。
+  // 戻る操作を検知したら、詳細表示中なら一覧に戻し、一覧なら何もしない。
+  history.pushState({ wardviewer: true }, '', location.href);
+  window.addEventListener('popstate', () => {
+    if (flipCardEl().classList.contains('flipped')){
+      flipCardEl().classList.remove('flipped');
+    }
+    history.pushState({ wardviewer: true }, '', location.href);
+  });
+  function flipCardEl(){ return document.getElementById('flipCard'); }
 
   const pickBtn = document.getElementById('pickBtn');
   const refreshBtn = document.getElementById('refreshBtn');
