@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>病棟テキストビューア</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2E4A6B">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="病棟ビューア">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F5F3EE;
+    --paper:#FFFFFF;
+    --ink:#20262B;
+    --ink-soft:#5B6570;
+    --line:#E4E0D6;
+    --ward:#2E4A6B;
+    --ward-soft:#EAF0F6;
+    --room:#4F8A7B;
+    --room-soft:#EAF4F1;
+    --exit:#8B3A3A;
+    --exit-soft:#F6EBEA;
+    --ring:#C9C3B4;
+    --shadow: 0 18px 40px -20px rgba(32,38,43,0.35);
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(1200px 600px at 15% -10%, #FBFAF6 0%, transparent 60%),
+      var(--bg);
+    color:var(--ink);
+    font-family:'Zen Kaku Gothic New', 'Hiragino Kaku Gothic ProN', sans-serif;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    padding:28px 16px 60px;
+  }
+  .app{
+    width:100%;
+    max-width:720px;
+  }
+  .brand{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+    margin:2px 4px 18px;
+  }
+  .brand .ring-dots{
+    display:flex;
+    gap:5px;
+  }
+  .brand .ring-dots span{
+    width:7px;height:7px;border-radius:50%;
+    background:var(--ring);
+    display:inline-block;
+  }
+  .brand h1{
+    font-family:'Shippori Mincho', serif;
+    font-weight:700;
+    font-size:22px;
+    letter-spacing:.04em;
+    margin:0;
+    color:var(--ink);
+  }
+  .brand .sub{
+    font-size:12px;
+    color:var(--ink-soft);
+    letter-spacing:.06em;
+  }
+
+  /* ---- Flip scene ---- */
+  .scene{
+    perspective:2200px;
+    position:relative;
+    min-height:70vh;
+  }
+  .flip-card{
+    position:relative;
+    width:100%;
+    min-height:70vh;
+    transform-style:preserve-3d;
+    transition:transform .68s cubic-bezier(.62,.08,.24,1);
+  }
+  .flip-card.flipped{ transform:rotateY(180deg); }
+  .flip-card.closing{ animation:closeAway .55s cubic-bezier(.5,0,.75,0) forwards; }
+  @keyframes closeAway{
+    0%{ transform:rotateY(0deg) scale(1); opacity:1; }
+    100%{ transform:rotateY(-18deg) scale(.92) translateY(10px); opacity:0; }
+  }
+
+  .face{
+    position:absolute;
+    inset:0;
+    backface-visibility:hidden;
+    -webkit-backface-visibility:hidden;
+    background:var(--paper);
+    border-radius:18px;
+    box-shadow:var(--shadow);
+    border:1px solid var(--line);
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+  }
+  .face-back{ transform:rotateY(180deg); }
+
+  /* binder ring holes along the left spine, purely decorative */
+  .face::before{
+    content:"";
+    position:absolute;
+    left:0; top:0; bottom:0; width:26px;
+    background:
+      repeating-linear-gradient(
+        180deg,
+        transparent 0px, transparent 22px,
+        var(--ring) 22px, var(--ring) 23px,
+        transparent 23px, transparent 45px
+      );
+    background-position:center 30px;
+    background-repeat:repeat-y;
+    opacity:.55;
+    pointer-events:none;
+  }
+  .face-inner{
+    position:relative;
+    padding:22px 22px 22px 40px;
+    display:flex;
+    flex-direction:column;
+    height:100%;
+    min-height:0;
+  }
+
+  /* ---- top bar (front) ---- */
+  .toolbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-bottom:14px;
+  }
+  button{
+    font-family:inherit;
+    cursor:pointer;
+    border:none;
+    border-radius:10px;
+    font-weight:700;
+    letter-spacing:.02em;
+  }
+  .btn-primary{
+    background:var(--ward);
+    color:#fff;
+    padding:11px 16px;
+    font-size:14px;
+    box-shadow:0 8px 18px -8px rgba(46,74,107,.6);
+  }
+  .btn-primary:active{ transform:translateY(1px); }
+  .btn-ghost{
+    background:var(--ward-soft);
+    color:var(--ward);
+    padding:10px 14px;
+    font-size:13px;
+  }
+  .btn-icon{
+    background:var(--ward-soft);
+    color:var(--ward);
+    width:38px;height:38px;
+    border-radius:10px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:16px;
+    flex:0 0 auto;
+  }
+  .btn-exit{
+    background:var(--exit-soft);
+    color:var(--exit);
+    padding:9px 13px;
+    font-size:12.5px;
+    margin-left:auto;
+  }
+  .folder-field{
+    flex:1 1 220px;
+    min-width:0;
+    background:#FAF9F5;
+    border:1px dashed var(--line);
+    border-radius:10px;
+    padding:10px 12px;
+    font-size:12.5px;
+    color:var(--ink-soft);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .status-line{
+    font-size:12px;
+    color:var(--ink-soft);
+    margin:0 0 14px 2px;
+    min-height:16px;
+  }
+
+  /* ---- ward list ---- */
+  .list-scroll{
+    flex:1;
+    min-height:0;
+    overflow-y:auto;
+    padding-right:4px;
+    margin-right:-4px;
+  }
+  .ward-group{
+    margin-bottom:16px;
+    border:1px solid var(--line);
+    border-radius:14px;
+    overflow:hidden;
+  }
+  .ward-head{
+    background:var(--ward-soft);
+    color:var(--ward);
+    padding:10px 14px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-weight:700;
+    font-size:13.5px;
+    letter-spacing:.03em;
+  }
+  .ward-head .count{
+    margin-left:auto;
+    font-size:11px;
+    font-weight:500;
+    color:var(--ward);
+    opacity:.75;
+    font-family:'SFMono-Regular', Consolas, monospace;
+  }
+  .room-row{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:11px 14px;
+    border-top:1px solid var(--line);
+    background:var(--paper);
+    text-align:left;
+    width:100%;
+  }
+  .room-row:active{ background:var(--room-soft); }
+  .room-badge{
+    flex:0 0 auto;
+    background:var(--room-soft);
+    color:var(--room);
+    font-weight:700;
+    font-size:12.5px;
+    padding:6px 9px;
+    border-radius:8px;
+    font-family:'SFMono-Regular', Consolas, monospace;
+    min-width:64px;
+    text-align:center;
+  }
+  .room-meta{
+    flex:1;
+    min-width:0;
+  }
+  .room-meta .pid{
+    font-size:12px;
+    color:var(--ink-soft);
+    font-family:'SFMono-Regular', Consolas, monospace;
+    letter-spacing:.03em;
+  }
+  .room-meta .demo{
+    font-size:13px;
+    color:var(--ink);
+    margin-top:2px;
+  }
+  .chev{
+    color:var(--ink-soft);
+    font-size:16px;
+    flex:0 0 auto;
+  }
+
+  .empty-state{
+    margin-top:20px;
+    padding:26px 16px;
+    text-align:center;
+    color:var(--ink-soft);
+    font-size:13px;
+    border:1px dashed var(--line);
+    border-radius:14px;
+  }
+
+  /* ---- detail (back) ---- */
+  .detail-head{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:14px;
+  }
+  .chip-row{
+    display:flex;
+    gap:8px;
+    margin-left:2px;
+    flex-wrap:wrap;
+  }
+  .chip{
+    font-size:12px;
+    font-weight:700;
+    padding:6px 11px;
+    border-radius:999px;
+  }
+  .chip-ward{ background:var(--ward-soft); color:var(--ward); }
+  .chip-room{ background:var(--room-soft); color:var(--room); }
+  .detail-pid{
+    font-size:11.5px;
+    color:var(--ink-soft);
+    margin:2px 2px 12px;
+    font-family:'SFMono-Regular', Consolas, monospace;
+  }
+  .detail-body{
+    flex:1;
+    min-height:0;
+    overflow-y:auto;
+    white-space:pre-wrap;
+    word-break:break-word;
+    font-size:13.5px;
+    line-height:1.85;
+    padding:16px 16px 24px;
+    background:#FCFBF8;
+    border:1px solid var(--line);
+    border-radius:12px;
+  }
+
+  /* ---- end screen ---- */
+  .end-screen{
+    position:fixed;
+    inset:0;
+    background:var(--bg);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    gap:10px;
+    text-align:center;
+    padding:20px;
+    opacity:0;
+    animation:fadeIn .5s ease forwards;
+  }
+  @keyframes fadeIn{ to{ opacity:1; } }
+  .end-screen h2{
+    font-family:'Shippori Mincho', serif;
+    font-size:20px;
+    margin:0;
+  }
+  .end-screen p{
+    color:var(--ink-soft);
+    font-size:13px;
+    max-width:320px;
+    margin:0;
+  }
+
+  ::-webkit-scrollbar{ width:8px; }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:8px; }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <div class="brand">
+    <span class="ring-dots"><span></span><span></span><span></span></span>
+    <div>
+      <h1>病棟テキストビューア</h1>
+      <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
+    </div>
+  </div>
+
+  <div class="scene">
+    <div class="flip-card" id="flipCard">
+
+      <!-- FRONT: folder select + ward/room list -->
+      <div class="face face-front">
+        <div class="face-inner">
+          <div class="toolbar">
+            <button class="btn-primary" id="pickBtn">📁 フォルダを選択</button>
+            <div class="folder-field" id="folderField">未選択</div>
+            <button class="btn-icon" id="refreshBtn" title="再読み込み">⟳</button>
+            <button class="btn-ghost" id="installBtn" hidden>📲 インストール</button>
+            <button class="btn-exit" id="exitBtn">✕ 終了</button>
+          </div>
+          <div class="status-line" id="statusLine"></div>
+
+          <div class="list-scroll" id="listScroll">
+            <div class="empty-state" id="emptyState">
+              左上の「フォルダを選択」から、テキストファイルの入ったフォルダを選んでください。<br>
+              各ファイル冒頭の「病棟:」「病室:」を読み取り、病棟・病室ごとに一覧表示します。
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- BACK: detail viewer -->
+      <div class="face face-back">
+        <div class="face-inner">
+          <div class="detail-head">
+            <button class="btn-ghost" id="backBtn">← 戻る</button>
+            <div class="chip-row" id="chipRow"></div>
+          </div>
+          <div class="detail-pid" id="detailPid"></div>
+          <div class="detail-body" id="detailBody"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="end-screen" id="endScreen" hidden>
+  <h2>終了しました</h2>
+  <p>このタブを閉じてください。フォルダの選択内容は次回起動時も記憶されています。</p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const pickBtn = document.getElementById('pickBtn');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const exitBtn = document.getElementById('exitBtn');
+  const backBtn = document.getElementById('backBtn');
+  const folderField = document.getElementById('folderField');
+  const statusLine = document.getElementById('statusLine');
+  const listScroll = document.getElementById('listScroll');
+  const emptyState = document.getElementById('emptyState');
+  const flipCard = document.getElementById('flipCard');
+  const chipRow = document.getElementById('chipRow');
+  const detailPid = document.getElementById('detailPid');
+  const detailBody = document.getElementById('detailBody');
+  const app = document.getElementById('app');
+  const endScreen = document.getElementById('endScreen');
+
+  const DB_NAME = 'wardTextViewerDB';
+  const STORE = 'handles';
+  const KEY = 'lastFolder';
+
+  let currentHandle = null;
+
+  // ---------- IndexedDB: remember last selected folder handle ----------
+  function openDB(){
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => { req.result.createObjectStore(STORE); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function saveHandle(handle){
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).put(handle, KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function loadHandle(){
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).get(KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  // ---------- parsing ----------
+  function parseRecord(fileName, text){
+    const lines = text.split(/\r?\n/);
+    let ward = null, room = null;
+    for (const line of lines){
+      if (!ward){
+        const m = line.match(/^\s*病棟[:：]\s*(.+?)\s*$/);
+        if (m) { ward = m[1]; continue; }
+      }
+      if (!room){
+        const m = line.match(/^\s*病室[:：]\s*(.+?)\s*$/);
+        if (m) { room = m[1]; continue; }
+      }
+      if (ward && room) break;
+    }
+    const pidMatch = text.match(/PID[:：]\s*([0-9A-Za-z]+)/);
+    const pid = pidMatch ? pidMatch[1] : null;
+
+    const demoMatch = text.match(/(\d+)\s*歳[^\n]*?(男性|女性)/);
+    const demo = demoMatch ? `${demoMatch[1]}歳 ${demoMatch[2]}` : null;
+
+    if (!ward || !room) return null;
+
+    const roomNumMatch = room.match(/(\d+)/);
+    const roomNum = roomNumMatch ? parseInt(roomNumMatch[1], 10) : 999999;
+
+    return { fileName, ward, room, roomNum, pid, demo, text };
+  }
+
+  function maskPid(pid){
+    if (!pid) return 'PID 不明';
+    if (pid.length <= 4) return 'PID ' + pid;
+    return 'PID ••••' + pid.slice(-4);
+  }
+
+  // ---------- folder loading ----------
+  async function loadFolder(handle){
+    statusLine.textContent = '読み込み中…';
+    listScroll.innerHTML = '';
+    currentHandle = handle;
+    folderField.textContent = handle.name;
+
+    const records = [];
+    let skipped = 0;
+
+    try {
+      for await (const entry of handle.values()){
+        if (entry.kind !== 'file') continue;
+        if (!/\.txt$/i.test(entry.name)) continue;
+        try {
+          const file = await entry.getFile();
+          const text = await file.text();
+          const rec = parseRecord(entry.name, text);
+          if (rec) records.push(rec);
+          else skipped++;
+        } catch (e){
+          skipped++;
+        }
+      }
+    } catch (e){
+      statusLine.textContent = 'フォルダの読み込みに失敗しました: ' + e.message;
+      return;
+    }
+
+    renderList(records, skipped);
+  }
+
+  function renderList(records, skipped){
+    listScroll.innerHTML = '';
+
+    if (records.length === 0){
+      const div = document.createElement('div');
+      div.className = 'empty-state';
+      div.textContent = 'テキストファイルが見つかりませんでした（「病棟:」「病室:」の記載がある .txt ファイルを対象にしています）。';
+      listScroll.appendChild(div);
+      statusLine.textContent = skipped ? `${skipped} 件のファイルを解析できませんでした。` : '';
+      return;
+    }
+
+    const groups = new Map();
+    for (const rec of records){
+      if (!groups.has(rec.ward)) groups.set(rec.ward, []);
+      groups.get(rec.ward).push(rec);
+    }
+
+    const wardNames = Array.from(groups.keys()).sort((a,b) => a.localeCompare(b, 'ja'));
+
+    for (const ward of wardNames){
+      const rooms = groups.get(ward).sort((a,b) => a.roomNum - b.roomNum);
+
+      const section = document.createElement('div');
+      section.className = 'ward-group';
+
+      const head = document.createElement('div');
+      head.className = 'ward-head';
+      head.innerHTML = `<span>${escapeHtml(ward)}</span><span class="count">${rooms.length}件</span>`;
+      section.appendChild(head);
+
+      for (const rec of rooms){
+        const row = document.createElement('button');
+        row.className = 'room-row';
+        row.innerHTML = `
+          <span class="room-badge">${escapeHtml(rec.room)}</span>
+          <span class="room-meta">
+            <span class="pid">${escapeHtml(maskPid(rec.pid))}</span>
+            <span class="demo">${escapeHtml(rec.demo || 'ー')}</span>
+          </span>
+          <span class="chev">›</span>
+        `;
+        row.addEventListener('click', () => openDetail(rec));
+        section.appendChild(row);
+      }
+
+      listScroll.appendChild(section);
+    }
+
+    statusLine.textContent = `${records.length} 件を読み込みました${skipped ? `（${skipped} 件は解析できず除外）` : ''}。`;
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+    }[c]));
+  }
+
+  // ---------- detail view / flip navigation ----------
+  function openDetail(rec){
+    chipRow.innerHTML = `
+      <span class="chip chip-ward">${escapeHtml(rec.ward)}</span>
+      <span class="chip chip-room">${escapeHtml(rec.room)}</span>
+    `;
+    detailPid.textContent = `${maskPid(rec.pid)}${rec.demo ? ' ・ ' + rec.demo : ''}`;
+    detailBody.textContent = rec.text;
+    detailBody.scrollTop = 0;
+    flipCard.classList.add('flipped');
+  }
+
+  function backToList(){
+    flipCard.classList.remove('flipped');
+  }
+
+  function exitApp(){
+    flipCard.classList.add('closing');
+    flipCard.addEventListener('animationend', () => {
+      app.style.display = 'none';
+      endScreen.hidden = false;
+      try { window.close(); } catch(e){}
+    }, { once:true });
+  }
+
+  backBtn.addEventListener('click', backToList);
+  exitBtn.addEventListener('click', exitApp);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && flipCard.classList.contains('flipped')){
+      backToList();
+    }
+  });
+
+  // swipe right on detail view = flip back
+  (function enableSwipeBack(){
+    const backFace = document.querySelector('.face-back');
+    let startX = null, startY = null;
+    backFace.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      startX = t.clientX; startY = t.clientY;
+    }, { passive:true });
+    backFace.addEventListener('touchend', (e) => {
+      if (startX === null) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - startX;
+      const dy = Math.abs(t.clientY - startY);
+      if (dx > 70 && dy < 60) backToList();
+      startX = null; startY = null;
+    }, { passive:true });
+  })();
+
+  // ---------- folder picking ----------
+  async function pickFolder(){
+    if (!('showDirectoryPicker' in window)){
+      alert('お使いのブラウザはフォルダ選択に対応していません。Chrome または Edge でこのファイルを開いてください。');
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'read' });
+      await saveHandle(handle);
+      await loadFolder(handle);
+    } catch (e){
+      if (e.name !== 'AbortError') statusLine.textContent = 'フォルダの選択に失敗しました。';
+    }
+  }
+
+  pickBtn.addEventListener('click', pickFolder);
+  refreshBtn.addEventListener('click', () => {
+    if (currentHandle) loadFolder(currentHandle);
+  });
+
+  // ---------- PWA: service worker registration ----------
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+
+  // ---------- PWA: install prompt ----------
+  const installBtn = document.getElementById('installBtn');
+  let deferredInstallPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    installBtn.hidden = false;
+  });
+  installBtn.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    installBtn.hidden = true;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+  });
+  window.addEventListener('appinstalled', () => {
+    installBtn.hidden = true;
+  });
+
+  if (location.protocol === 'file:'){
+    statusLine.textContent = 'ヒント: インストール可能なアプリとして使うには start_server.bat でローカルサーバー経由で開いてください。';
+  }
+
+  // ---------- restore last folder on startup ----------
+  async function restore(){
+    if (!('showDirectoryPicker' in window)){
+      statusLine.textContent = 'このブラウザはフォルダ選択 API に対応していません（Chrome / Edge 推奨）。';
+      return;
+    }
+    let handle;
+    try {
+      handle = await loadHandle();
+    } catch(e){ return; }
+    if (!handle) return;
+
+    folderField.textContent = handle.name + '（再読込中…）';
+    try {
+      const perm = await handle.queryPermission({ mode:'read' });
+      if (perm === 'granted'){
+        await loadFolder(handle);
+      } else {
+        folderField.textContent = handle.name;
+        statusLine.textContent = '前回のフォルダへのアクセス許可が必要です。';
+        currentHandle = handle;
+        pickBtn.textContent = '🔓 フォルダへのアクセスを許可';
+        pickBtn.addEventListener('click', async function reauth(){
+          const p = await handle.requestPermission({ mode:'read' });
+          if (p === 'granted'){
+            pickBtn.textContent = '📁 フォルダを選択';
+            pickBtn.removeEventListener('click', reauth);
+            await loadFolder(handle);
+          }
+        }, { once:true });
+      }
+    } catch(e){
+      folderField.textContent = '未選択';
+    }
+  }
+
+  restore();
+})();
+</script>
+</body>
+</html>
