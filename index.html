@@ -505,11 +505,28 @@
       }
       if (ward && room) break;
     }
-    const pidMatch = text.match(/PID[:：]\s*([0-9A-Za-z]+)/);
-    const pid = pidMatch ? pidMatch[1] : null;
+    // PID/患者ID: 「PID:」「患者ID:」「PID」(コロンなし)「患者ID 123456」(文中埋め込み) 等の表記ゆれに対応
+    const pidMatch = text.match(/(?:患者ID|PID)[:：]?\s*(\d{4,})/);
+    let pid = pidMatch ? pidMatch[1] : null;
+    // 本文にPID記載が無い場合はファイル名 (dwh_ubie_result_XXXXXXXXXX_...) から補完
+    if (!pid){
+      const fnMatch = fileName.match(/dwh_ubie_result_(\d+)_/);
+      if (fnMatch) pid = fnMatch[1];
+    }
 
-    const demoMatch = text.match(/(\d+)\s*歳[^\n]*?(男性|女性)/);
-    const demo = demoMatch ? `${demoMatch[1]}歳 ${demoMatch[2]}` : null;
+    // 年齢・性別: 「78歳2ヶ月 男性」のように同一行の場合と、
+    // 「年齢: 78歳2ヶ月」「性別: 女性」のように別行の場合の両方に対応
+    let demo = null;
+    const comboMatch = text.match(/(\d+)\s*歳[^\n]*?(男性|女性)/);
+    if (comboMatch){
+      demo = `${comboMatch[1]}歳 ${comboMatch[2]}`;
+    } else {
+      const ageMatch = text.match(/年齢[:：]?\s*(\d+)\s*歳/);
+      const sexMatch = text.match(/性別[:：]?\s*(男性|女性)/);
+      if (ageMatch && sexMatch) demo = `${ageMatch[1]}歳 ${sexMatch[1]}`;
+      else if (ageMatch) demo = `${ageMatch[1]}歳`;
+      else if (sexMatch) demo = sexMatch[1];
+    }
 
     if (!ward || !room) return null;
 
