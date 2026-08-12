@@ -4,7 +4,7 @@
   "description": "フォルダ内のテキストを病棟・病室ごとに一覧表示するビューア",
   "start_url": "./",
   "scope": "./",
-  "id": "./",
+  "id": "./patient_txt_viewer",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#F5F3EE",
