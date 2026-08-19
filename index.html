@@ -389,16 +389,24 @@
   .map-img-wrap{
     flex:1;
     min-height:0;
-    overflow:auto;
+    overflow:hidden;
     display:flex;
     align-items:center;
     justify-content:center;
     background:#F2F1EC;
+    touch-action:none;
+    cursor:grab;
   }
+  .map-img-wrap.grabbing{ cursor:grabbing; }
   .map-img-wrap img{
     max-width:100%;
     max-height:80vh;
     display:block;
+    transform-origin:center center;
+    will-change:transform;
+    user-select:none;
+    -webkit-user-drag:none;
+    touch-action:none;
   }
 
   /* ---- mobile: maximize usable area, shrink type ---- */
@@ -495,6 +503,7 @@
   <div class="map-panel">
     <div class="map-panel-head">
       <span id="mapTitle"></span>
+      <button class="btn-icon" id="mapResetBtn" title="拡大をリセット">⟲</button>
       <button class="btn-icon" id="mapCloseBtn" title="閉じる">✕</button>
     </div>
     <div class="map-img-wrap">
@@ -567,6 +576,7 @@
     mapImage.src = currentMapUrl;
     mapTitle.textContent = wardName;
     mapOverlay.hidden = false;
+    resetMapZoom();
   }
 
   function closeWardMap(){
@@ -579,11 +589,113 @@
 
   const mapOverlay = document.getElementById('mapOverlay');
   const mapBackdrop = document.getElementById('mapBackdrop');
+  const mapImgWrap = document.querySelector('.map-img-wrap');
   const mapImage = document.getElementById('mapImage');
   const mapTitle = document.getElementById('mapTitle');
   const mapCloseBtn = document.getElementById('mapCloseBtn');
+  const mapResetBtn = document.getElementById('mapResetBtn');
   mapCloseBtn.addEventListener('click', closeWardMap);
+  mapResetBtn.addEventListener('click', resetMapZoom);
   mapBackdrop.addEventListener('click', closeWardMap);
+
+  // ---------- ward map: pinch-zoom / pan ----------
+  (function enableMapZoomPan(){
+    const MIN_SCALE = 1, MAX_SCALE = 6;
+    let scale = 1, tx = 0, ty = 0;
+    let pointers = new Map();
+    let lastDist = null;
+    let lastMid = null;
+    let lastPan = null;
+    let lastTapTime = 0;
+
+    window.resetMapZoomImpl = () => {
+      scale = 1; tx = 0; ty = 0;
+      applyTransform();
+    };
+
+    function applyTransform(){
+      mapImage.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    }
+
+    function clampScale(s){
+      return Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
+    }
+
+    mapImgWrap.addEventListener('pointerdown', (e) => {
+      mapImgWrap.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      mapImgWrap.classList.add('grabbing');
+      if (pointers.size === 1){
+        lastPan = { x: e.clientX, y: e.clientY };
+      } else if (pointers.size === 2){
+        const pts = Array.from(pointers.values());
+        lastDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        lastMid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+      }
+    });
+
+    mapImgWrap.addEventListener('pointermove', (e) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (pointers.size === 1){
+        const p = pointers.get(e.pointerId);
+        tx += p.x - lastPan.x;
+        ty += p.y - lastPan.y;
+        lastPan = { x: p.x, y: p.y };
+        applyTransform();
+      } else if (pointers.size === 2){
+        const pts = Array.from(pointers.values());
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+        if (lastDist){
+          scale = clampScale(scale * (dist / lastDist));
+        }
+        if (lastMid){
+          tx += mid.x - lastMid.x;
+          ty += mid.y - lastMid.y;
+        }
+        lastDist = dist;
+        lastMid = mid;
+        applyTransform();
+      }
+    });
+
+    function endPointer(e){
+      pointers.delete(e.pointerId);
+      mapImgWrap.classList.remove('grabbing');
+      lastDist = null;
+      lastMid = null;
+      if (pointers.size === 1){
+        const [p] = pointers.values();
+        lastPan = { x: p.x, y: p.y };
+      }
+    }
+    mapImgWrap.addEventListener('pointerup', (e) => {
+      if (pointers.size === 1){
+        const now = Date.now();
+        if (now - lastTapTime < 300){
+          if (scale > 1) window.resetMapZoomImpl();
+          else { scale = 2.2; applyTransform(); }
+        }
+        lastTapTime = now;
+      }
+      endPointer(e);
+    });
+    mapImgWrap.addEventListener('pointercancel', endPointer);
+
+    // デスクトップのマウスホイール/トラックパッドでの拡縮
+    mapImgWrap.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      scale = clampScale(scale * (e.deltaY < 0 ? 1.12 : 0.89));
+      applyTransform();
+    }, { passive: false });
+  })();
+
+  function resetMapZoom(){
+    if (window.resetMapZoomImpl) window.resetMapZoomImpl();
+  }
+
 
   // ---------- IndexedDB: remember last selected folder handle ----------
   function openDB(){
