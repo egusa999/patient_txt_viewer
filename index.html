@@ -368,7 +368,9 @@
     position:relative;
     background:var(--paper);
     border-radius:16px;
+    width:min(92vw, 720px);
     max-width:min(92vw, 720px);
+    height:min(80vh, 640px);
     max-height:92vh;
     display:flex;
     flex-direction:column;
@@ -407,6 +409,13 @@
     user-select:none;
     -webkit-user-drag:none;
     touch-action:none;
+  }
+  .map-img-wrap img[hidden]{ display:none; }
+  .map-error{
+    color:var(--ink-soft);
+    font-size:13px;
+    text-align:center;
+    padding:20px;
   }
 
   /* ---- mobile: maximize usable area, shrink type ---- */
@@ -508,6 +517,7 @@
     </div>
     <div class="map-img-wrap">
       <img id="mapImage" alt="病棟マップ">
+      <div class="map-error" id="mapError" hidden>画像を読み込めませんでした。</div>
     </div>
   </div>
 </div>
@@ -572,7 +582,15 @@
     const entry = wardImages.get(wardName);
     if (!entry) return;
     if (currentMapUrl) URL.revokeObjectURL(currentMapUrl);
-    currentMapUrl = URL.createObjectURL(entry.file);
+    // Android(SAF/クラウド経由)ではFile.typeが空や不正になることがあり、
+    // そのままだとブラウザが画像として認識せず壊れたアイコンになるため、
+    // 拡張子から正しいMIMEタイプを付け直したBlobを作る。
+    const file = entry.file;
+    const mime = file.type && file.type.startsWith('image/') ? file.type : 'image/png';
+    const blob = (file.type === mime) ? file : new Blob([file], { type: mime });
+    currentMapUrl = URL.createObjectURL(blob);
+    mapError.hidden = true;
+    mapImage.hidden = false;
     mapImage.src = currentMapUrl;
     mapTitle.textContent = wardName;
     mapOverlay.hidden = false;
@@ -591,12 +609,17 @@
   const mapBackdrop = document.getElementById('mapBackdrop');
   const mapImgWrap = document.querySelector('.map-img-wrap');
   const mapImage = document.getElementById('mapImage');
+  const mapError = document.getElementById('mapError');
   const mapTitle = document.getElementById('mapTitle');
   const mapCloseBtn = document.getElementById('mapCloseBtn');
   const mapResetBtn = document.getElementById('mapResetBtn');
   mapCloseBtn.addEventListener('click', closeWardMap);
   mapResetBtn.addEventListener('click', resetMapZoom);
   mapBackdrop.addEventListener('click', closeWardMap);
+  mapImage.addEventListener('error', () => {
+    mapImage.hidden = true;
+    mapError.hidden = false;
+  });
 
   // ---------- ward map: pinch-zoom / pan ----------
   (function enableMapZoomPan(){
