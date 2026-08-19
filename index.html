@@ -232,6 +232,16 @@
     font-size:13.5px;
     letter-spacing:.03em;
   }
+  .ward-head.has-map{
+    cursor:pointer;
+  }
+  .ward-head.has-map:active{
+    background:var(--room-soft);
+  }
+  .ward-head .map-icon{
+    font-size:12px;
+    opacity:.8;
+  }
   .ward-head .count{
     margin-left:auto;
     font-size:11px;
@@ -338,6 +348,59 @@
   ::-webkit-scrollbar{ width:8px; }
   ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:8px; }
 
+  /* ---- ward map modal ---- */
+  .map-overlay{
+    position:fixed;
+    inset:0;
+    z-index:50;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+  }
+  .map-overlay[hidden]{ display:none; }
+  .map-backdrop{
+    position:absolute;
+    inset:0;
+    background:rgba(24,28,32,0.72);
+  }
+  .map-panel{
+    position:relative;
+    background:var(--paper);
+    border-radius:16px;
+    max-width:min(92vw, 720px);
+    max-height:92vh;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    box-shadow:0 24px 60px -20px rgba(0,0,0,.5);
+  }
+  .map-panel-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:10px 12px;
+    border-bottom:1px solid var(--line);
+    font-weight:700;
+    font-size:13px;
+    color:var(--ward);
+  }
+  .map-img-wrap{
+    flex:1;
+    min-height:0;
+    overflow:auto;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:#F2F1EC;
+  }
+  .map-img-wrap img{
+    max-width:100%;
+    max-height:80vh;
+    display:block;
+  }
+
   /* ---- mobile: maximize usable area, shrink type ---- */
   @media (max-width:640px){
     .brand{ margin:0 2px 8px; gap:7px; }
@@ -426,6 +489,20 @@
   </div>
 </div>
 
+<!-- 病棟マップ モーダル -->
+<div class="map-overlay" id="mapOverlay" hidden>
+  <div class="map-backdrop" id="mapBackdrop"></div>
+  <div class="map-panel">
+    <div class="map-panel-head">
+      <span id="mapTitle"></span>
+      <button class="btn-icon" id="mapCloseBtn" title="閉じる">✕</button>
+    </div>
+    <div class="map-img-wrap">
+      <img id="mapImage" alt="病棟マップ">
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   "use strict";
@@ -436,7 +513,10 @@
   // 戻る操作を検知したら、詳細表示中なら一覧に戻し、一覧なら何もしない。
   history.pushState({ wardviewer: true }, '', location.href);
   window.addEventListener('popstate', () => {
-    if (flipCardEl().classList.contains('flipped')){
+    const overlay = document.getElementById('mapOverlay');
+    if (overlay && !overlay.hidden){
+      closeWardMap();
+    } else if (flipCardEl().classList.contains('flipped')){
       flipCardEl().classList.remove('flipped');
     }
     history.pushState({ wardviewer: true }, '', location.href);
@@ -461,6 +541,49 @@
   const KEY = 'lastFolder';
 
   let currentHandle = null;
+
+  // ---------- ward map images ----------
+  // ファイル名パターン: 病棟名_YYYYMMDD_HHMMSS.png
+  const WARD_MAP_RE = /^(.+)_(\d{8})_(\d{6})\.png$/i;
+  let wardImages = new Map(); // wardName -> File (最新のもの)
+  let currentMapUrl = null;
+
+  function considerWardMapFile(name, file){
+    const m = name.match(WARD_MAP_RE);
+    if (!m) return;
+    const ward = m[1];
+    const stamp = m[2] + m[3];
+    const existing = wardImages.get(ward);
+    if (!existing || stamp > existing.stamp){
+      wardImages.set(ward, { file, stamp });
+    }
+  }
+
+  function openWardMap(wardName){
+    const entry = wardImages.get(wardName);
+    if (!entry) return;
+    if (currentMapUrl) URL.revokeObjectURL(currentMapUrl);
+    currentMapUrl = URL.createObjectURL(entry.file);
+    mapImage.src = currentMapUrl;
+    mapTitle.textContent = wardName;
+    mapOverlay.hidden = false;
+  }
+
+  function closeWardMap(){
+    mapOverlay.hidden = true;
+    if (currentMapUrl){
+      URL.revokeObjectURL(currentMapUrl);
+      currentMapUrl = null;
+    }
+  }
+
+  const mapOverlay = document.getElementById('mapOverlay');
+  const mapBackdrop = document.getElementById('mapBackdrop');
+  const mapImage = document.getElementById('mapImage');
+  const mapTitle = document.getElementById('mapTitle');
+  const mapCloseBtn = document.getElementById('mapCloseBtn');
+  mapCloseBtn.addEventListener('click', closeWardMap);
+  mapBackdrop.addEventListener('click', closeWardMap);
 
   // ---------- IndexedDB: remember last selected folder handle ----------
   function openDB(){
@@ -548,6 +671,7 @@
     listScroll.innerHTML = '';
     currentHandle = handle;
     folderField.textContent = handle.name;
+    wardImages = new Map();
 
     const records = [];
     let skipped = 0;
@@ -555,6 +679,13 @@
     try {
       for await (const entry of handle.values()){
         if (entry.kind !== 'file') continue;
+        if (/\.png$/i.test(entry.name)){
+          try {
+            const file = await entry.getFile();
+            considerWardMapFile(entry.name, file);
+          } catch (e){ /* ignore */ }
+          continue;
+        }
         if (!/\.txt$/i.test(entry.name)) continue;
         try {
           const file = await entry.getFile();
@@ -602,7 +733,15 @@
 
       const head = document.createElement('div');
       head.className = 'ward-head';
-      head.innerHTML = `<span>${escapeHtml(ward)}</span><span class="count">${rooms.length}件</span>`;
+      const hasMap = wardImages.has(ward);
+      if (hasMap){
+        head.classList.add('has-map');
+        head.title = 'タップで病棟マップを表示';
+      }
+      head.innerHTML = `<span>${escapeHtml(ward)}</span>${hasMap ? '<span class="map-icon">🗺️</span>' : ''}<span class="count">${rooms.length}件</span>`;
+      if (hasMap){
+        head.addEventListener('click', () => openWardMap(ward));
+      }
       section.appendChild(head);
 
       for (const rec of rooms){
@@ -651,7 +790,11 @@
   backBtn.addEventListener('click', backToList);
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && flipCard.classList.contains('flipped')){
+    if (e.key !== 'Escape') return;
+    const overlay = document.getElementById('mapOverlay');
+    if (overlay && !overlay.hidden){
+      closeWardMap();
+    } else if (flipCard.classList.contains('flipped')){
       backToList();
     }
   });
@@ -696,6 +839,7 @@
   async function loadFromFileList(fileList){
     statusLine.textContent = '読み込み中…';
     listScroll.innerHTML = '';
+    wardImages = new Map();
 
     const firstPath = fileList[0] && fileList[0].webkitRelativePath;
     folderField.textContent = firstPath ? firstPath.split('/')[0] : '選択したフォルダ';
@@ -704,6 +848,10 @@
     let skipped = 0;
 
     for (const file of fileList){
+      if (/\.png$/i.test(file.name)){
+        considerWardMapFile(file.name, file);
+        continue;
+      }
       if (!/\.txt$/i.test(file.name)) continue;
       try {
         const text = await file.text();
