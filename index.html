@@ -276,17 +276,25 @@
   .room-meta{
     flex:1;
     min-width:0;
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+    overflow-x:auto;
+    white-space:nowrap;
+    scrollbar-width:thin;
+    -webkit-overflow-scrolling:touch;
   }
-  .room-meta .pid{
-    font-size:12px;
-    color:var(--ink-soft);
-    font-family:'SFMono-Regular', Consolas, monospace;
-    letter-spacing:.03em;
-  }
+  .room-meta::-webkit-scrollbar{ height:4px; }
   .room-meta .demo{
     font-size:13px;
     color:var(--ink);
-    margin-top:2px;
+    font-weight:600;
+    flex:0 0 auto;
+  }
+  .room-meta .diag{
+    font-size:12px;
+    color:var(--ink-soft);
+    flex:0 0 auto;
   }
   .chev{
     color:var(--ink-soft);
@@ -443,8 +451,8 @@
     .ward-head .count{ font-size:9.5px; }
     .room-row{ padding:8px 10px; gap:8px; }
     .room-badge{ font-size:11px; padding:4px 6px; min-width:50px; }
-    .room-meta .pid{ font-size:10px; }
     .room-meta .demo{ font-size:11.5px; }
+    .room-meta .diag{ font-size:10.5px; }
     .chev{ font-size:14px; }
     .empty-state{ padding:16px 10px; font-size:11.5px; margin-top:10px; }
 
@@ -786,12 +794,43 @@
       else if (sexMatch) demo = sexMatch[1];
     }
 
+    // 病名(主病名): 「主病名: ○○」の直接記載と、
+    // プロブレムリストの「#1 ○○（主病名）」「1. ○○ (主病名)」形式の両方に対応
+    let diagnosis = null;
+    const diagLabelMatch = text.match(/主病名[:：]\s*(.+)/);
+    if (diagLabelMatch){
+      diagnosis = diagLabelMatch[1];
+    } else {
+      const diagParenMatch = text.match(/^[ \t]*(?:#\d+\.?|\d+\.)?[ \t]*(.+?)[ \t]*[（(]主病名[）)]/m);
+      if (diagParenMatch) diagnosis = diagParenMatch[1];
+    }
+    if (diagnosis) diagnosis = diagnosis.replace(/\s+/g, ' ').trim();
+
+    // 手術日から術後日数を算出（当日基準）。「YYYY/MM/DD」「YYYY年M月D日」双方に対応
+    let postOpDays = null;
+    const surgMatch = text.match(/手術日[:：]\s*(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})/);
+    if (surgMatch){
+      const surgDate = new Date(parseInt(surgMatch[1], 10), parseInt(surgMatch[2], 10) - 1, parseInt(surgMatch[3], 10));
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      postOpDays = Math.round((today - surgDate) / 86400000);
+    }
+
     if (!ward || !room) return null;
 
     const roomNumMatch = room.match(/(\d+)/);
     const roomNum = roomNumMatch ? parseInt(roomNumMatch[1], 10) : 999999;
 
-    return { fileName, ward, room, roomNum, pid, demo, text };
+    return { fileName, ward, room, roomNum, pid, demo, diagnosis, postOpDays, text };
+  }
+
+  function statusText(rec){
+    const parts = [];
+    if (rec.diagnosis) parts.push(rec.diagnosis);
+    if (rec.postOpDays !== null){
+      parts.push(rec.postOpDays >= 0 ? `術後${rec.postOpDays}日` : '術前');
+    }
+    return parts.length ? parts.join(' ・ ') : null;
   }
 
   function maskPid(pid){
@@ -885,8 +924,8 @@
         row.innerHTML = `
           <span class="room-badge">${escapeHtml(rec.room)}</span>
           <span class="room-meta">
-            <span class="pid">${escapeHtml(maskPid(rec.pid))}</span>
             <span class="demo">${escapeHtml(rec.demo || 'ー')}</span>
+            <span class="diag">・ ${escapeHtml(statusText(rec) || 'ー')}</span>
           </span>
           <span class="chev">›</span>
         `;
