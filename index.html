@@ -756,8 +756,15 @@
     });
   }
 
+
+  // 全角数字(０-９)を半角に変換（実データで年齢等が全角表記のことがあるため）
+  function normalizeDigits(s){
+    return s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  }
+
   // ---------- parsing ----------
   function parseRecord(fileName, text){
+    const ntext = normalizeDigits(text); // 数字マッチング用（表示にはオリジナルのtextを使う）
     const lines = text.split(/\r?\n/);
     let ward = null, room = null;
     for (const line of lines){
@@ -772,7 +779,7 @@
       if (ward && room) break;
     }
     // PID/患者ID: 「PID:」「患者ID:」「PID」(コロンなし)「患者ID 123456」(文中埋め込み) 等の表記ゆれに対応
-    const pidMatch = text.match(/(?:患者ID|PID)[:：]?\s*(\d{4,})/);
+    const pidMatch = ntext.match(/(?:患者ID|PID)[:：]?\s*(\d{4,})/);
     let pid = pidMatch ? pidMatch[1] : null;
     // 本文にPID記載が無い場合はファイル名 (dwh_ubie_result_XXXXXXXXXX_...) から補完
     if (!pid){
@@ -783,12 +790,12 @@
     // 年齢・性別: 「78歳2ヶ月 男性」のように同一行の場合と、
     // 「年齢: 78歳2ヶ月」「性別: 女性」のように別行の場合の両方に対応
     let demo = null;
-    const comboMatch = text.match(/(\d+)\s*歳[^\n]*?(男性|女性)/);
+    const comboMatch = ntext.match(/(\d+)\s*歳[^\n]*?(男性|女性)/);
     if (comboMatch){
       demo = `${comboMatch[1]}歳 ${comboMatch[2]}`;
     } else {
-      const ageMatch = text.match(/年齢[:：]?\s*(\d+)\s*歳/);
-      const sexMatch = text.match(/性別[:：]?\s*(男性|女性)/);
+      const ageMatch = ntext.match(/年齢[:：]?\s*(\d+)\s*歳/);
+      const sexMatch = ntext.match(/性別[:：]?\s*(男性|女性)/);
       if (ageMatch && sexMatch) demo = `${ageMatch[1]}歳 ${sexMatch[1]}`;
       else if (ageMatch) demo = `${ageMatch[1]}歳`;
       else if (sexMatch) demo = sexMatch[1];
@@ -797,18 +804,18 @@
     // 病名(主病名): 「主病名: ○○」の直接記載と、
     // プロブレムリストの「#1 ○○（主病名）」「1. ○○ (主病名)」形式の両方に対応
     let diagnosis = null;
-    const diagLabelMatch = text.match(/主病名[:：]\s*(.+)/);
+    const diagLabelMatch = ntext.match(/主病名[:：]\s*(.+)/);
     if (diagLabelMatch){
       diagnosis = diagLabelMatch[1];
     } else {
-      const diagParenMatch = text.match(/^[ \t]*(?:#\d+\.?|\d+\.)?[ \t]*(.+?)[ \t]*[（(]主病名[）)]/m);
+      const diagParenMatch = ntext.match(/^[ \t]*(?:#\d+\.?|\d+\.)?[ \t]*(.+?)[ \t]*[（(]主病名[）)]/m);
       if (diagParenMatch) diagnosis = diagParenMatch[1];
     }
     if (diagnosis) diagnosis = diagnosis.replace(/\s+/g, ' ').trim();
 
     // 手術日から術後日数を算出（当日基準）。「YYYY/MM/DD」「YYYY年M月D日」双方に対応
     let postOpDays = null;
-    const surgMatch = text.match(/手術日[:：]\s*(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})/);
+    const surgMatch = ntext.match(/手術日[:：]\s*(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})/);
     if (surgMatch){
       const surgDate = new Date(parseInt(surgMatch[1], 10), parseInt(surgMatch[2], 10) - 1, parseInt(surgMatch[3], 10));
       const now = new Date();
@@ -818,7 +825,7 @@
 
     if (!ward || !room) return null;
 
-    const roomNumMatch = room.match(/(\d+)/);
+    const roomNumMatch = normalizeDigits(room).match(/(\d+)/);
     const roomNum = roomNumMatch ? parseInt(roomNumMatch[1], 10) : 999999;
 
     return { fileName, ward, room, roomNum, pid, demo, diagnosis, postOpDays, text };
