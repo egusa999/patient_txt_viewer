@@ -283,6 +283,7 @@
     white-space:nowrap;
     scrollbar-width:thin;
     -webkit-overflow-scrolling:touch;
+    touch-action:pan-x;
   }
   .room-meta::-webkit-scrollbar{ height:4px; }
   .room-meta .demo{
@@ -762,6 +763,13 @@
     return s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   }
 
+  // 「男」「女」「男性」「女性」いずれの表記も「男性」「女性」に揃える
+  function normalizeSex(s){
+    if (s === '男' || s === '男性') return '男性';
+    if (s === '女' || s === '女性') return '女性';
+    return s;
+  }
+
   // ---------- parsing ----------
   function parseRecord(fileName, text){
     const ntext = normalizeDigits(text); // 数字マッチング用（表示にはオリジナルのtextを使う）
@@ -790,15 +798,15 @@
     // 年齢・性別: 「78歳2ヶ月 男性」のように同一行の場合と、
     // 「年齢: 78歳2ヶ月」「性別: 女性」のように別行の場合の両方に対応
     let demo = null;
-    const comboMatch = ntext.match(/(\d+)\s*歳[^\n]*?(男性|女性)/);
+    const comboMatch = ntext.match(/(\d+)\s*歳[^\n]*?(男性?|女性?)(?!\S)/);
     if (comboMatch){
-      demo = `${comboMatch[1]}歳 ${comboMatch[2]}`;
+      demo = `${comboMatch[1]}歳 ${normalizeSex(comboMatch[2])}`;
     } else {
       const ageMatch = ntext.match(/年齢[:：]?\s*(\d+)\s*歳/);
-      const sexMatch = ntext.match(/性別[:：]?\s*(男性|女性)/);
-      if (ageMatch && sexMatch) demo = `${ageMatch[1]}歳 ${sexMatch[1]}`;
+      const sexMatch = ntext.match(/性別[:：]?\s*(男性?|女性?)(?!\S)/);
+      if (ageMatch && sexMatch) demo = `${ageMatch[1]}歳 ${normalizeSex(sexMatch[1])}`;
       else if (ageMatch) demo = `${ageMatch[1]}歳`;
-      else if (sexMatch) demo = sexMatch[1];
+      else if (sexMatch) demo = normalizeSex(sexMatch[1]);
     }
 
     // 病名(主病名): 「主病名: ○○」の直接記載と、

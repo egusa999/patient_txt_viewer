@@ -2,7 +2,7 @@
 // アプリの外枠（HTML/マニフェスト/アイコン）だけをキャッシュする。
 // 閲覧するテキスト自体はローカルフォルダから毎回直接読むため対象外。
 
-const CACHE_VERSION = 'v14';
+const CACHE_VERSION = 'v15';
 const CACHE_NAME = `ward-text-viewer-${CACHE_VERSION}`;
 
 const APP_SHELL = [
