@@ -276,26 +276,18 @@
   .room-meta{
     flex:1;
     min-width:0;
-    display:flex;
-    align-items:baseline;
-    gap:8px;
-    overflow-x:auto;
-    white-space:nowrap;
-    scrollbar-width:thin;
-    -webkit-overflow-scrolling:touch;
-    touch-action:pan-x;
   }
-  .room-meta::-webkit-scrollbar{ height:4px; }
   .room-meta .demo{
     font-size:13px;
     color:var(--ink);
     font-weight:600;
-    flex:0 0 auto;
   }
   .room-meta .diag{
     font-size:12px;
     color:var(--ink-soft);
-    flex:0 0 auto;
+    margin-top:2px;
+    white-space:normal;
+    word-break:break-word;
   }
   .chev{
     color:var(--ink-soft);
