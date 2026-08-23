@@ -846,6 +846,36 @@
     return 'PID ••••' + pid.slice(-4);
   }
 
+  // ファイル名中の日時 (YYYYMMDD_HHMMSS) から比較用タイムスタンプ(ms)を求める。
+  // 見つからない場合はファイルの更新日時にフォールバック。
+  function fileStampMs(fileName, lastModified){
+    const m = fileName.match(/(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/);
+    if (m){
+      return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
+    }
+    return lastModified || 0;
+  }
+
+  // 同一患者ID(PID)の複数ファイルは、タイムスタンプが最新のものだけを残す
+  function dedupeByPid(records){
+    const latest = new Map();
+    const noPid = [];
+    let dupCount = 0;
+    for (const rec of records){
+      if (!rec.pid){ noPid.push(rec); continue; }
+      const existing = latest.get(rec.pid);
+      if (!existing){
+        latest.set(rec.pid, rec);
+      } else if (rec.fileStamp > existing.fileStamp){
+        latest.set(rec.pid, rec);
+        dupCount++;
+      } else {
+        dupCount++;
+      }
+    }
+    return { records: [...latest.values(), ...noPid], dupCount };
+  }
+
   // ---------- folder loading ----------
   async function loadFolder(handle){
     statusLine.textContent = '読み込み中…';
@@ -872,7 +902,10 @@
           const file = await entry.getFile();
           const text = await file.text();
           const rec = parseRecord(entry.name, text);
-          if (rec) records.push(rec);
+          if (rec){
+            rec.fileStamp = fileStampMs(entry.name, file.lastModified);
+            records.push(rec);
+          }
           else skipped++;
         } catch (e){
           skipped++;
@@ -883,10 +916,12 @@
       return;
     }
 
-    renderList(records, skipped);
+    const { records: deduped, dupCount } = dedupeByPid(records);
+    renderList(deduped, skipped, dupCount);
   }
 
-  function renderList(records, skipped){
+  function renderList(records, skipped, dupCount){
+    dupCount = dupCount || 0;
     listScroll.innerHTML = '';
 
     if (records.length === 0){
@@ -943,7 +978,10 @@
       listScroll.appendChild(section);
     }
 
-    statusLine.textContent = `${records.length} 件を読み込みました${skipped ? `（${skipped} 件は解析できず除外）` : ''}。`;
+    const notes = [];
+    if (skipped) notes.push(`${skipped} 件は解析できず除外`);
+    if (dupCount) notes.push(`同一患者の重複 ${dupCount} 件は最新のみ表示`);
+    statusLine.textContent = `${records.length} 件を読み込みました${notes.length ? `（${notes.join('、')}）` : ''}。`;
   }
 
   function escapeHtml(s){
@@ -1037,14 +1075,18 @@
       try {
         const text = await file.text();
         const rec = parseRecord(file.name, text);
-        if (rec) records.push(rec);
+        if (rec){
+          rec.fileStamp = fileStampMs(file.name, file.lastModified);
+          records.push(rec);
+        }
         else skipped++;
       } catch (e){
         skipped++;
       }
     }
 
-    renderList(records, skipped);
+    const { records: deduped, dupCount } = dedupeByPid(records);
+    renderList(deduped, skipped, dupCount);
   }
 
   folderInput.addEventListener('change', (e) => {
