@@ -332,6 +332,8 @@
     margin:2px 2px 12px;
     font-family:'SFMono-Regular', Consolas, monospace;
   }
+  .detail-body .ln-h1{ font-weight:700; color:blue; font-size:1.25em; }
+  .detail-body .ln-h2{ font-weight:700; font-size:1.125em; }
   .detail-body{
     flex:1;
     min-height:0;
@@ -991,13 +993,32 @@
   }
 
   // ---------- detail view / flip navigation ----------
+  // カルテ転記と同じ行頭マーカー規則: 「■」=+2pt太字青、「【」=+1pt太字(rpa_common/karte_ops/clipboard.py参照)
+  function renderDetailText(text){
+    const frag = document.createDocumentFragment();
+    text.split('\n').forEach((line, i, arr) => {
+      const cls = line.startsWith('■') ? 'ln-h1' : line.startsWith('【') ? 'ln-h2' : '';
+      const nl = i < arr.length - 1 ? '\n' : '';
+      if (cls) {
+        const span = document.createElement('span');
+        span.className = cls;
+        span.textContent = line;
+        frag.appendChild(span);
+        if (nl) frag.appendChild(document.createTextNode(nl));
+      } else {
+        frag.appendChild(document.createTextNode(line + nl));
+      }
+    });
+    detailBody.replaceChildren(frag);
+  }
+
   function openDetail(rec){
     chipRow.innerHTML = `
       <span class="chip chip-ward">${escapeHtml(rec.ward)}</span>
       <span class="chip chip-room">${escapeHtml(rec.room)}</span>
     `;
     detailPid.textContent = `${maskPid(rec.pid)}${rec.demo ? ' ・ ' + rec.demo : ''}`;
-    detailBody.textContent = rec.text;
+    renderDetailText(rec.text);
     detailBody.scrollTop = 0;
     flipCard.classList.add('flipped');
   }
