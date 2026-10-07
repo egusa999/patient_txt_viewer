@@ -332,6 +332,14 @@
     margin:2px 2px 12px;
     font-family:'SFMono-Regular', Consolas, monospace;
   }
+  .memo-box{ margin-top:10px; display:flex; flex-direction:column; gap:6px; }
+  .memo-box textarea{
+    width:100%; box-sizing:border-box; min-height:84px; resize:vertical;
+    font:inherit; font-size:14px; line-height:1.6; padding:10px 12px;
+    background:#FCFBF8; border:1px solid var(--line); border-radius:12px; color:inherit;
+  }
+  .memo-row{ display:flex; align-items:center; gap:10px; }
+  .memo-msg{ font-size:11.5px; color:var(--ink-soft); }
   .detail-body .ln-h1{ font-weight:700; color:blue; font-size:1.25em; }
   .detail-body .ln-h2{ font-weight:700; font-size:1.125em; }
   .detail-body{
@@ -502,6 +510,13 @@
           </div>
           <div class="detail-pid" id="detailPid"></div>
           <div class="detail-body" id="detailBody"></div>
+          <div class="memo-box">
+            <textarea id="memoText" placeholder="メモ(カルテ「#」欄へ転記。行頭に ■ / 【 を付けると太字になります)"></textarea>
+            <div class="memo-row">
+              <button class="btn-primary" id="memoSaveBtn">📝 メモをtxtで保存</button>
+              <span class="memo-msg" id="memoMsg"></span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -825,7 +840,11 @@
       postOpDays = Math.round((today - surgDate) / 86400000);
     }
 
-    if (!ward || !room) return null;
+    // 病棟/病室の見出しが無いファイル(病棟一覧CSVに未掲載・病室未割当等)は、PIDがあれば
+    // 捨てずに「病棟未設定」グループで表示する。PIDも無ければ患者記録ではないので除外。
+    if (!ward && !room && !pid) return null;
+    if (!ward) ward = '病棟未設定';
+    if (!room) room = '室未設定';
 
     const roomNumMatch = normalizeDigits(room).match(/(\d+)/);
     const roomNum = roomNumMatch ? parseInt(roomNumMatch[1], 10) : 999999;
@@ -879,6 +898,18 @@
   }
 
   // ---------- folder loading ----------
+  // 読み取りエラー(Androidでアプリがバックグラウンドに回った/OneDrive未取得等)は一時的なことがあるので、
+  // 画面が前面に戻るのを待って数回再試行する。それでも失敗したものだけ readFailed に数える。
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  async function withRetry(fn){
+    let lastErr;
+    for (let i = 0; i < 4; i++){
+      while (document.visibilityState === 'hidden') await sleep(300);
+      try { return await fn(); } catch(e){ lastErr = e; await sleep(400 * (i + 1)); }
+    }
+    throw lastErr;
+  }
+  let readFailed = 0;
   async function loadFolder(handle){
     statusLine.textContent = '読み込み中…';
     listScroll.innerHTML = '';
@@ -888,6 +919,7 @@
 
     const records = [];
     let skipped = 0;
+    readFailed = 0;
 
     try {
       for await (const entry of handle.values()){
@@ -901,8 +933,10 @@
         }
         if (!/\.txt$/i.test(entry.name)) continue;
         try {
-          const file = await entry.getFile();
-          const text = await file.text();
+          const { file, text } = await withRetry(async () => {
+            const f = await entry.getFile();
+            return { file: f, text: await f.text() };
+          });
           const rec = parseRecord(entry.name, text);
           if (rec){
             rec.fileStamp = fileStampMs(entry.name, file.lastModified);
@@ -910,7 +944,7 @@
           }
           else skipped++;
         } catch (e){
-          skipped++;
+          readFailed++;
         }
       }
     } catch (e){
@@ -982,6 +1016,7 @@
 
     const notes = [];
     if (skipped) notes.push(`${skipped} 件は解析できず除外`);
+    if (readFailed) notes.push(`${readFailed} 件は読み取りに失敗(⟳で再読み込み)`);
     if (dupCount) notes.push(`同一患者の重複 ${dupCount} 件は最新のみ表示`);
     statusLine.textContent = `${records.length} 件を読み込みました${notes.length ? `（${notes.join('、')}）` : ''}。`;
   }
@@ -1012,7 +1047,56 @@
     detailBody.replaceChildren(frag);
   }
 
+  // ---------- 患者メモ → memo_<PID>_<YYYYMMDD_HHMMSS>.txt (GenerateTXTandScribeがカルテ「#」欄へ転記) ----------
+  const memoText = document.getElementById('memoText');
+  const memoSaveBtn = document.getElementById('memoSaveBtn');
+  const memoMsg = document.getElementById('memoMsg');
+  let currentRec = null;
+  const memoKey = rec => 'memoDraft:' + rec.pid;
+  function lsGet(k){ try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } }
+  function lsSet(k, v){ try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch(e){} }
+
+  memoText.addEventListener('input', () => {
+    if (currentRec && currentRec.pid) lsSet(memoKey(currentRec), memoText.value);
+  });
+
+  function pad2(n){ return String(n).padStart(2, '0'); }
+  function memoFileName(pid){
+    const d = new Date();
+    return `memo_${pid}_${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}.txt`;
+  }
+
+  memoSaveBtn.addEventListener('click', async () => {
+    const rec = currentRec;
+    const body = memoText.value.replace(/\r\n?/g, '\n').trim();
+    if (!rec || !rec.pid){ memoMsg.textContent = 'PIDが不明なため保存できません。'; return; }
+    if (!body){ memoMsg.textContent = 'メモが空です。'; return; }
+    const content = `患者ID：${rec.pid}／病棟：${rec.ward}／病室：${rec.room}\n\n${body}\n`;
+    const name = memoFileName(rec.pid);
+    const file = new File([content], name, { type:'text/plain' });
+    try {
+      if (navigator.canShare && navigator.canShare({ files:[file] })){
+        await navigator.share({ files:[file] });
+      } else {
+        const url = URL.createObjectURL(file);
+        const a = document.createElement('a');
+        a.href = url; a.download = name;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      }
+    } catch(e){
+      if (e && e.name === 'AbortError') return; // 共有キャンセル
+      memoMsg.textContent = '保存に失敗しました: ' + e.message; return;
+    }
+    memoText.value = '';
+    lsSet(memoKey(rec), '');
+    memoMsg.textContent = `${name} を保存しました。PCの共有フォルダへ置いてください。`;
+  });
+
   function openDetail(rec){
+    currentRec = rec;
+    memoText.value = rec.pid ? lsGet(memoKey(rec)) : '';
+    memoMsg.textContent = '';
     chipRow.innerHTML = `
       <span class="chip chip-ward">${escapeHtml(rec.ward)}</span>
       <span class="chip chip-room">${escapeHtml(rec.room)}</span>
@@ -1086,6 +1170,7 @@
 
     const records = [];
     let skipped = 0;
+    readFailed = 0;
 
     for (const file of fileList){
       if (/\.png$/i.test(file.name)){
@@ -1094,7 +1179,7 @@
       }
       if (!/\.txt$/i.test(file.name)) continue;
       try {
-        const text = await file.text();
+        const text = await withRetry(() => file.text());
         const rec = parseRecord(file.name, text);
         if (rec){
           rec.fileStamp = fileStampMs(file.name, file.lastModified);
@@ -1102,7 +1187,7 @@
         }
         else skipped++;
       } catch (e){
-        skipped++;
+        readFailed++;
       }
     }
 
