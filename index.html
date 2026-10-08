@@ -513,7 +513,7 @@
           <div class="memo-box">
             <textarea id="memoText" placeholder="メモ(カルテ「#」欄へ転記。行頭に ■ / 【 を付けると太字になります)"></textarea>
             <div class="memo-row">
-              <button class="btn-primary" id="memoSaveBtn">📝 メモをtxtで保存</button>
+              <button class="btn-primary" id="memoSaveBtn">📝 本日のメモをtxtで保存</button>
               <span class="memo-msg" id="memoMsg"></span>
             </div>
           </div>
@@ -932,6 +932,7 @@
           continue;
         }
         if (!/\.txt$/i.test(entry.name)) continue;
+        if (/^(転記済み_)?memo_/.test(entry.name)) continue; // メモファイルは患者記録ではない
         try {
           const { file, text } = await withRetry(async () => {
             const f = await entry.getFile();
@@ -1047,32 +1048,40 @@
     detailBody.replaceChildren(frag);
   }
 
-  // ---------- 患者メモ → memo_<PID>_<YYYYMMDD_HHMMSS>.txt (GenerateTXTandScribeがカルテ「#」欄へ転記) ----------
+  // ---------- 患者メモ → memo_<YYYYMMDD>.txt (1日1ファイル・全患者分。GenerateTXTandScribeがカルテ「#」欄へ転記) ----------
+  // 形式: 患者ごとのブロックを空行区切りで並べる。各ブロック先頭行「患者ID：…／病棟：…／病室：…」+本文。
   const memoText = document.getElementById('memoText');
   const memoSaveBtn = document.getElementById('memoSaveBtn');
   const memoMsg = document.getElementById('memoMsg');
   let currentRec = null;
-  const memoKey = rec => 'memoDraft:' + rec.pid;
-  function lsGet(k){ try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } }
-  function lsSet(k, v){ try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch(e){} }
-
-  memoText.addEventListener('input', () => {
-    if (currentRec && currentRec.pid) lsSet(memoKey(currentRec), memoText.value);
-  });
-
   function pad2(n){ return String(n).padStart(2, '0'); }
-  function memoFileName(pid){
-    const d = new Date();
-    return `memo_${pid}_${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}.txt`;
+  function todayStr(){ const d = new Date(); return `${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}`; }
+  const dayKey = () => 'memoDay:' + todayStr();
+  // 当日のメモ {pid: {ward, room, text}} をlocalStorageに保持(日付が変われば別の箱になる)
+  function loadDay(){ try { return JSON.parse(localStorage.getItem(dayKey()) || '{}'); } catch(e){ return {}; } }
+  function saveDay(obj){ try { localStorage.setItem(dayKey(), JSON.stringify(obj)); } catch(e){} }
+  function updateMemoCount(){
+    const n = Object.values(loadDay()).filter(m => m.text && m.text.trim()).length;
+    memoSaveBtn.textContent = `📝 本日のメモ(${n}件)をtxtで保存`;
   }
 
+  memoText.addEventListener('input', () => {
+    if (!currentRec || !currentRec.pid) return;
+    const day = loadDay();
+    if (memoText.value.trim()) day[currentRec.pid] = { ward: currentRec.ward, room: currentRec.room, text: memoText.value };
+    else delete day[currentRec.pid];
+    saveDay(day);
+    updateMemoCount();
+  });
+
   memoSaveBtn.addEventListener('click', async () => {
-    const rec = currentRec;
-    const body = memoText.value.replace(/\r\n?/g, '\n').trim();
-    if (!rec || !rec.pid){ memoMsg.textContent = 'PIDが不明なため保存できません。'; return; }
-    if (!body){ memoMsg.textContent = 'メモが空です。'; return; }
-    const content = `患者ID：${rec.pid}／病棟：${rec.ward}／病室：${rec.room}\n\n${body}\n`;
-    const name = memoFileName(rec.pid);
+    const day = loadDay();
+    const blocks = Object.entries(day)
+      .filter(([, m]) => m.text && m.text.replace(/\s/g, ''))
+      .map(([pid, m]) => `患者ID：${pid}／病棟：${m.ward}／病室：${m.room}\n${m.text.replace(/\r\n?/g, '\n').trim()}`);
+    if (!blocks.length){ memoMsg.textContent = '本日のメモがありません。'; return; }
+    const content = blocks.join('\n\n') + '\n';
+    const name = `memo_${todayStr()}.txt`;
     const file = new File([content], name, { type:'text/plain' });
     try {
       if (navigator.canShare && navigator.canShare({ files:[file] })){
@@ -1088,14 +1097,14 @@
       if (e && e.name === 'AbortError') return; // 共有キャンセル
       memoMsg.textContent = '保存に失敗しました: ' + e.message; return;
     }
-    memoText.value = '';
-    lsSet(memoKey(rec), '');
-    memoMsg.textContent = `${name} を保存しました。PCの共有フォルダへ置いてください。`;
+    memoMsg.textContent = `${name} に ${blocks.length} 名分を保存しました。PCの共有フォルダへ置いてください。`;
   });
 
   function openDetail(rec){
     currentRec = rec;
-    memoText.value = rec.pid ? lsGet(memoKey(rec)) : '';
+    const m = rec.pid ? loadDay()[rec.pid] : null;
+    memoText.value = m ? m.text : '';
+    updateMemoCount();
     memoMsg.textContent = '';
     chipRow.innerHTML = `
       <span class="chip chip-ward">${escapeHtml(rec.ward)}</span>
@@ -1178,6 +1187,7 @@
         continue;
       }
       if (!/\.txt$/i.test(file.name)) continue;
+      if (/^(転記済み_)?memo_/.test(file.name)) continue; // メモファイルは患者記録ではない
       try {
         const text = await withRetry(() => file.text());
         const rec = parseRecord(file.name, text);
