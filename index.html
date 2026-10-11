@@ -828,11 +828,20 @@
       const diagParenMatch = ntext.match(/^[ \t]*(?:#\d+\.?|\d+\.)?[ \t]*(.+?)[ \t]*[（(]主病名[）)]/m);
       if (diagParenMatch) diagnosis = diagParenMatch[1];
     }
+    // 江草Dr形式(★病名): 最初の「★」行を病名とする。「　○○より紹介」等の全角スペース以降は除く
+    if (!diagnosis){
+      const starMatch = ntext.match(/^[ \t]*★[ \t]*([^\n]+)/m);
+      if (starMatch) diagnosis = starMatch[1].split('　')[0];
+    }
+    // 「■主病名：X（手術日：…）」のように同一行に括弧書きが続く場合は病名だけにする
+    if (diagnosis) diagnosis = diagnosis.replace(/[（(]\s*手術日[^）)]*[）)].*$/, '');
     if (diagnosis) diagnosis = diagnosis.replace(/\s+/g, ' ').trim();
 
     // 手術日から術後日数を算出（当日基準）。「YYYY/MM/DD」「YYYY年M月D日」双方に対応
     let postOpDays = null;
-    const surgMatch = ntext.match(/手術日[:：]\s*(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})/);
+    // 江草Dr形式は先頭の手術行「YYYY/MM/DD Rt.○○ for ○○ 術後X日目」から(手術日:ラベルが無い場合)
+    const surgMatch = ntext.match(/手術日[:：]\s*(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})/)
+      || ntext.match(/^[ \t]*(\d{4})\/(\d{1,2})\/(\d{1,2})[ \t]*[^\n]*\bfor\b[^\n]*$/m);
     if (surgMatch){
       const surgDate = new Date(parseInt(surgMatch[1], 10), parseInt(surgMatch[2], 10) - 1, parseInt(surgMatch[3], 10));
       const now = new Date();
