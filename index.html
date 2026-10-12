@@ -919,6 +919,13 @@
     throw lastErr;
   }
   let readFailed = 0;
+  // 1ファイルずつ直列に読むと、OneDrive/SAF経由では1件ごとの待ちが積み上がるため、並列(最大8本)で読む
+  async function runPool(items, worker, limit = 8){
+    let i = 0;
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (i < items.length){ const it = items[i++]; await worker(it); }
+    }));
+  }
   async function loadFolder(handle){
     statusLine.textContent = '読み込み中…';
     listScroll.innerHTML = '';
@@ -931,17 +938,20 @@
     readFailed = 0;
 
     try {
+      const entries = [];
       for await (const entry of handle.values()){
         if (entry.kind !== 'file') continue;
+        if (/\.png$/i.test(entry.name) ||
+            (/\.txt$/i.test(entry.name) && !/^(転記済み_)?memo_/.test(entry.name))) entries.push(entry); // memoファイルは患者記録ではない
+      }
+      await runPool(entries, async (entry) => {
         if (/\.png$/i.test(entry.name)){
           try {
             const file = await entry.getFile();
             considerWardMapFile(entry.name, file);
           } catch (e){ /* ignore */ }
-          continue;
+          return;
         }
-        if (!/\.txt$/i.test(entry.name)) continue;
-        if (/^(転記済み_)?memo_/.test(entry.name)) continue; // メモファイルは患者記録ではない
         try {
           const { file, text } = await withRetry(async () => {
             const f = await entry.getFile();
@@ -956,7 +966,7 @@
         } catch (e){
           readFailed++;
         }
-      }
+      });
     } catch (e){
       statusLine.textContent = 'フォルダの読み込みに失敗しました: ' + e.message;
       return;
@@ -1190,6 +1200,7 @@
     let skipped = 0;
     readFailed = 0;
 
+    const targets = [];
     for (const file of fileList){
       if (/\.png$/i.test(file.name)){
         considerWardMapFile(file.name, file);
@@ -1197,6 +1208,9 @@
       }
       if (!/\.txt$/i.test(file.name)) continue;
       if (/^(転記済み_)?memo_/.test(file.name)) continue; // メモファイルは患者記録ではない
+      targets.push(file);
+    }
+    await runPool(targets, async (file) => {
       try {
         const text = await withRetry(() => file.text());
         const rec = parseRecord(file.name, text);
@@ -1208,7 +1222,7 @@
       } catch (e){
         readFailed++;
       }
-    }
+    });
 
     const { records: deduped, dupCount } = dedupeByPid(records);
     renderList(deduped, skipped, dupCount);
