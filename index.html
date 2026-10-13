@@ -477,7 +477,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v26</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v27</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -924,10 +924,10 @@
     throw lastErr;
   }
   let readFailed = 0;
-  // 1ファイルずつ直列に読むと、OneDrive/SAF経由では1件ごとの待ちが積み上がるため、並列(最大8本)で読む
-  async function runPool(items, worker, limit = 8){
+  // 1ファイルずつ直列に読むと、OneDrive/SAF経由では1件ごとの待ちが積み上がるため、全件を同時に(ファイル数=患者数と同じ本数の並列で)読む
+  async function runPool(items, worker){
     let i = 0;
-    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    await Promise.all(Array.from({ length: items.length }, async () => {
       while (i < items.length){ const it = items[i++]; await worker(it); }
     }));
   }
