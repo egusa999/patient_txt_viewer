@@ -100,7 +100,7 @@
   .flip-card{
     position:relative;
     width:100%;
-    height:100%;
+    display:grid; /* 表裏を重ね、表示中の面の高さに合わせてページを伸ばす */
     min-height:60vh;
     transform-style:preserve-3d;
     transition:transform .68s cubic-bezier(.62,.08,.24,1);
@@ -108,8 +108,10 @@
   .flip-card.flipped{ transform:rotateY(180deg); }
 
   .face{
-    position:absolute;
-    inset:0;
+    grid-area:1 / 1;
+    align-self:start;
+    position:relative;
+    width:100%;
     backface-visibility:hidden;
     -webkit-backface-visibility:hidden;
     background:var(--paper);
@@ -121,6 +123,9 @@
     flex-direction:column;
   }
   .face-back{ transform:rotateY(180deg); }
+  /* 非表示側の面は高さを0にして、表示中の面の内容量だけページを伸ばす */
+  .flip-card:not(.flipped) .face-back,
+  .flip-card.flipped .face-front{ height:0; }
 
   /* binder ring holes along the left spine, purely decorative */
   .face::before{
@@ -144,8 +149,6 @@
     padding:22px 22px 22px 40px;
     display:flex;
     flex-direction:column;
-    height:100%;
-    min-height:0;
   }
 
   /* ---- top bar (front) ---- */
@@ -209,9 +212,6 @@
 
   /* ---- ward list ---- */
   .list-scroll{
-    flex:1;
-    min-height:0;
-    overflow-y:auto;
     padding-right:4px;
     margin-right:-4px;
   }
@@ -343,9 +343,6 @@
   .detail-body .ln-h1{ font-weight:700; color:blue; font-size:1.25em; }
   .detail-body .ln-h2{ font-weight:700; font-size:1.125em; }
   .detail-body{
-    flex:1;
-    min-height:0;
-    overflow-y:auto;
     white-space:pre-wrap;
     word-break:break-word;
     font-size:13.5px;
