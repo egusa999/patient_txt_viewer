@@ -507,7 +507,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v34</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v35</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -1053,6 +1053,8 @@
     const notes = [];
     if (skipped) notes.push(`${skipped} 件は解析できず除外`);
     if (readFailed) notes.push(`${readFailed} 件は読み取りに失敗(⟳で選び直し)`);
+    const mapCount = [...wardImages.keys()].filter(k => k !== SURGERY_MAP_NAME).length;
+    notes.push(`病棟マップ ${mapCount} 枚`);
     if (dupCount) notes.push(`同一患者の重複 ${dupCount} 件は最新のみ表示`);
     statusLine.textContent = `${records.length} 件を読み込みました${notes.length ? `（${notes.join('、')}）` : ''}。`;
   }
