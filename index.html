@@ -477,7 +477,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v30</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v31</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -489,17 +489,18 @@
       <div class="face face-front">
         <div class="face-inner">
           <div class="toolbar">
-            <button class="btn-primary" id="bundleBtn">📄 まとめファイルを選択</button>
+            <button class="btn-primary" id="pickBtn" hidden>📁 フォルダを選択</button>
+            <button class="btn-ghost" id="bundleBtn">📄 ファイルを選択</button>
             <div class="folder-field" id="folderField">未選択</div>
             <button class="btn-icon" id="refreshBtn" title="再読み込み">⟳</button>
             <button class="btn-ghost" id="installBtn" hidden>📲 インストール</button>
           </div>
-          <input type="file" id="bundleInput" accept=".txt,text/plain" hidden>
+          <input type="file" id="bundleInput" accept=".txt,.png,text/plain,image/png" multiple hidden>
           <div class="status-line" id="statusLine"></div>
 
           <div class="list-scroll" id="listScroll">
             <div class="empty-state" id="emptyState">
-              左上の「まとめファイルを選択」から、医師フォルダ内の ubie_bundle.txt を選んでください。<br>
+              左上の「フォルダを選択」(iPhone等は「ファイルを選択」)から、医師フォルダ(の ubie_bundle.txt)を選んでください。<br>
               各ファイル冒頭の「病棟:」「病室:」を読み取り、病棟・病室ごとに一覧表示します。
             </div>
           </div>
@@ -566,6 +567,12 @@
   function flipCardEl(){ return document.getElementById('flipCard'); }
 
   const refreshBtn = document.getElementById('refreshBtn');
+  const pickBtn = document.getElementById('pickBtn');
+  const DB_NAME = 'wardTextViewerDB';
+  const STORE = 'handles';
+  const KEY = 'lastFolder';
+  const BUNDLE_FILE_NAME = 'ubie_bundle.txt'; // 医師フォルダ内のまとめファイル
+  let currentHandle = null;
   const bundleBtn = document.getElementById('bundleBtn');
   const bundleInput = document.getElementById('bundleInput');
   const backBtn = document.getElementById('backBtn');
@@ -736,6 +743,35 @@
 
   function resetMapZoom(){
     if (window.resetMapZoomImpl) window.resetMapZoomImpl();
+  }
+
+
+  // ---------- IndexedDB: remember last selected folder handle ----------
+  function openDB(){
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => { req.result.createObjectStore(STORE); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function saveHandle(handle){
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).put(handle, KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function loadHandle(){
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).get(KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
   }
 
 
@@ -1097,11 +1133,12 @@
     });
     return parts;
   }
-  async function loadBundle(file){
+  async function loadBundle(file, pngs = [], label = file.name){
     statusLine.textContent = '読み込み中…';
     listScroll.innerHTML = '';
     wardImages = new Map();
-    folderField.textContent = file.name;
+    for (const p of pngs) considerWardMapFile(p.name, p);
+    folderField.textContent = label;
     readFailed = 0;
     let parts;
     try {
@@ -1128,15 +1165,61 @@
     const { records: deduped, dupCount } = dedupeByPid(records);
     renderList(deduped, skipped, dupCount);
   }
+  // ---------- フォルダ(File System Access API対応ブラウザ): フォルダ内のまとめファイルと病棟マップを読む ----------
+  const SUPPORTS_DIR_PICKER = 'showDirectoryPicker' in window;
+  pickBtn.hidden = !SUPPORTS_DIR_PICKER;
+  if (!SUPPORTS_DIR_PICKER) bundleBtn.className = 'btn-primary';
+
+  async function loadFolder(handle){
+    currentHandle = handle;
+    folderField.textContent = handle.name;
+    let file;
+    try {
+      file = await (await handle.getFileHandle(BUNDLE_FILE_NAME)).getFile();
+    } catch (e){
+      statusLine.textContent = `このフォルダに ${BUNDLE_FILE_NAME} が見つかりません(医師フォルダを選んでください)`;
+      listScroll.innerHTML = '';
+      return;
+    }
+    const pngs = [];
+    try {
+      for await (const entry of handle.values()){
+        if (entry.kind !== 'file' || !/\.png$/i.test(entry.name)) continue;
+        try { pngs.push(await entry.getFile()); } catch (e){ /* 読めない画像は無視 */ }
+      }
+    } catch (e){ /* マップ無しで続行 */ }
+    await loadBundle(file, pngs, handle.name);
+  }
+
+  let pendingReauth = false; // 起動時の「アクセスを許可」ボタン表示中は、通常のフォルダ選択を動かさない
+  pickBtn.addEventListener('click', async () => {
+    if (pendingReauth) return;
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'read' });
+      await saveHandle(handle);
+      await loadFolder(handle);
+    } catch (e){
+      if (e.name !== 'AbortError') statusLine.textContent = 'フォルダの選択に失敗しました。';
+    }
+  });
+
+  // ---------- ファイル選択(iPhone/Android等フォルダ選択不可の端末): まとめファイル(+病棟マップPNG)を選ぶ ----------
   bundleBtn.addEventListener('click', () => bundleInput.click());
   bundleInput.addEventListener('change', (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (f) loadBundle(f);
+    const files = [...(e.target.files || [])];
+    const bundle = files.find(f => f.name === BUNDLE_FILE_NAME) || files.find(f => /\.txt$/i.test(f.name));
+    if (bundle){
+      currentHandle = null;
+      loadBundle(bundle, files.filter(f => /\.png$/i.test(f.name)));
+    }
     bundleInput.value = '';
   });
 
-  // 再読み込みは、ファイルを選び直す(ブラウザは選択したファイルを保持できない)
-  refreshBtn.addEventListener('click', () => bundleInput.click());
+  // 再読み込み: フォルダを覚えていればそれを読み直す。無ければファイルを選び直す
+  refreshBtn.addEventListener('click', () => {
+    if (currentHandle) loadFolder(currentHandle);
+    else bundleInput.click();
+  });
 
   // ---------- PWA: service worker registration ----------
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
@@ -1168,7 +1251,46 @@
     statusLine.textContent = 'ヒント: インストール可能なアプリとして使うには start_server.bat でローカルサーバー経由で開いてください。';
   }
 
-  statusLine.textContent = '「まとめファイルを選択」から ubie_bundle.txt を選んでください。';
+  // ---------- restore last folder on startup ----------
+  async function restore(){
+    if (!SUPPORTS_DIR_PICKER){
+      // iPhone/Android等: フォルダの永続アクセスができないため毎回ファイルを選ぶ。
+      statusLine.textContent = '「ファイルを選択」から ubie_bundle.txt を選んでください(病棟マップのPNGも一緒に選ぶと表示できます)。';
+      return;
+    }
+    let handle;
+    try {
+      handle = await loadHandle();
+    } catch(e){ return; }
+    if (!handle) return;
+
+    folderField.textContent = handle.name + '（再読込中…）';
+    try {
+      const perm = await handle.queryPermission({ mode:'read' });
+      if (perm === 'granted'){
+        await loadFolder(handle);
+      } else {
+        folderField.textContent = handle.name;
+        statusLine.textContent = '前回のフォルダへのアクセス許可が必要です。';
+        currentHandle = handle;
+        pickBtn.textContent = '🔓 フォルダへのアクセスを許可';
+        pendingReauth = true;
+        pickBtn.addEventListener('click', async function reauth(){
+          pendingReauth = false;
+          const p = await handle.requestPermission({ mode:'read' });
+          if (p === 'granted'){
+            pickBtn.textContent = '📁 フォルダを選択';
+            pickBtn.removeEventListener('click', reauth);
+            await loadFolder(handle);
+          }
+        }, { once:true });
+      }
+    } catch(e){
+      folderField.textContent = '未選択';
+    }
+  }
+
+  restore();
 })();
 </script>
 </body>
