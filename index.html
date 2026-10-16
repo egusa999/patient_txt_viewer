@@ -477,7 +477,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v31</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v32</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -489,18 +489,19 @@
       <div class="face face-front">
         <div class="face-inner">
           <div class="toolbar">
-            <button class="btn-primary" id="pickBtn" hidden>📁 フォルダを選択</button>
+            <button class="btn-primary" id="pickBtn">📁 フォルダを選択</button>
             <button class="btn-ghost" id="bundleBtn">📄 ファイルを選択</button>
             <div class="folder-field" id="folderField">未選択</div>
             <button class="btn-icon" id="refreshBtn" title="再読み込み">⟳</button>
             <button class="btn-ghost" id="installBtn" hidden>📲 インストール</button>
           </div>
+          <input type="file" id="folderInput" webkitdirectory multiple hidden>
           <input type="file" id="bundleInput" accept=".txt,.png,text/plain,image/png" multiple hidden>
           <div class="status-line" id="statusLine"></div>
 
           <div class="list-scroll" id="listScroll">
             <div class="empty-state" id="emptyState">
-              左上の「フォルダを選択」(iPhone等は「ファイルを選択」)から、医師フォルダ(の ubie_bundle.txt)を選んでください。<br>
+              左上の「フォルダを選択」から医師フォルダを選んでください(フォルダを選べない端末は「ファイルを選択」で ubie_bundle.txt を選択)。<br>
               各ファイル冒頭の「病棟:」「病室:」を読み取り、病棟・病室ごとに一覧表示します。
             </div>
           </div>
@@ -568,6 +569,7 @@
 
   const refreshBtn = document.getElementById('refreshBtn');
   const pickBtn = document.getElementById('pickBtn');
+  const folderInput = document.getElementById('folderInput');
   const DB_NAME = 'wardTextViewerDB';
   const STORE = 'handles';
   const KEY = 'lastFolder';
@@ -1167,8 +1169,6 @@
   }
   // ---------- フォルダ(File System Access API対応ブラウザ): フォルダ内のまとめファイルと病棟マップを読む ----------
   const SUPPORTS_DIR_PICKER = 'showDirectoryPicker' in window;
-  pickBtn.hidden = !SUPPORTS_DIR_PICKER;
-  if (!SUPPORTS_DIR_PICKER) bundleBtn.className = 'btn-primary';
 
   async function loadFolder(handle){
     currentHandle = handle;
@@ -1191,9 +1191,16 @@
     await loadBundle(file, pngs, handle.name);
   }
 
+  let lastPickWasFolderInput = false;
   let pendingReauth = false; // 起動時の「アクセスを許可」ボタン表示中は、通常のフォルダ選択を動かさない
   pickBtn.addEventListener('click', async () => {
     if (pendingReauth) return;
+    if (!SUPPORTS_DIR_PICKER){
+      // Android等 File System Access API 非対応ブラウザ: フォルダ選択入力で代替(フォルダの記憶は不可)
+      lastPickWasFolderInput = true;
+      folderInput.click();
+      return;
+    }
     try {
       const handle = await window.showDirectoryPicker({ mode: 'read' });
       await saveHandle(handle);
@@ -1205,20 +1212,42 @@
 
   // ---------- ファイル選択(iPhone/Android等フォルダ選択不可の端末): まとめファイル(+病棟マップPNG)を選ぶ ----------
   bundleBtn.addEventListener('click', () => bundleInput.click());
-  bundleInput.addEventListener('change', (e) => {
-    const files = [...(e.target.files || [])];
-    const bundle = files.find(f => f.name === BUNDLE_FILE_NAME) || files.find(f => /\.txt$/i.test(f.name));
-    if (bundle){
-      currentHandle = null;
-      loadBundle(bundle, files.filter(f => /\.png$/i.test(f.name)));
+  // 選択された複数ファイルから、まとめファイルと病棟マップPNGを取り出して表示する
+  function loadSelectedFiles(files, label){
+    const bundle = files.find(f => f.name === BUNDLE_FILE_NAME);
+    if (!bundle){
+      statusLine.textContent = `選択内に ${BUNDLE_FILE_NAME} が見つかりません(医師フォルダを選んでください)`;
+      listScroll.innerHTML = '';
+      return;
     }
+    currentHandle = null;
+    loadBundle(bundle, files.filter(f => /\.png$/i.test(f.name)), label || bundle.name);
+  }
+  bundleInput.addEventListener('change', (e) => {
+    lastPickWasFolderInput = false;
+    const files = [...(e.target.files || [])];
+    // フォルダ階層を選べない端末では、txtが1つだけならその名前に関わらずまとめファイルとして読む
+    const txts = files.filter(f => /\.txt$/i.test(f.name));
+    if (txts.length === 1 && txts[0].name !== BUNDLE_FILE_NAME){
+      currentHandle = null;
+      loadBundle(txts[0], files.filter(f => /\.png$/i.test(f.name)));
+    } else if (files.length) loadSelectedFiles(files);
     bundleInput.value = '';
+  });
+  folderInput.addEventListener('change', (e) => {
+    const files = [...(e.target.files || [])];
+    const first = files[0] && files[0].webkitRelativePath;
+    // 選んだフォルダ直下のファイルだけを対象にする(下位フォルダの同名ファイルは除く)
+    const root = first ? first.split('/')[0] : '';
+    const direct = files.filter(f => !f.webkitRelativePath || f.webkitRelativePath.split('/').length === 2);
+    if (files.length) loadSelectedFiles(direct, root || '選択したフォルダ');
+    folderInput.value = '';
   });
 
   // 再読み込み: フォルダを覚えていればそれを読み直す。無ければファイルを選び直す
   refreshBtn.addEventListener('click', () => {
     if (currentHandle) loadFolder(currentHandle);
-    else bundleInput.click();
+    else (lastPickWasFolderInput ? folderInput : bundleInput).click();
   });
 
   // ---------- PWA: service worker registration ----------
@@ -1255,7 +1284,7 @@
   async function restore(){
     if (!SUPPORTS_DIR_PICKER){
       // iPhone/Android等: フォルダの永続アクセスができないため毎回ファイルを選ぶ。
-      statusLine.textContent = '「ファイルを選択」から ubie_bundle.txt を選んでください(病棟マップのPNGも一緒に選ぶと表示できます)。';
+      statusLine.textContent = '「フォルダを選択」から医師フォルダを毎回選んでください(このブラウザでは前回の選択を記憶できません)。';
       return;
     }
     let handle;
