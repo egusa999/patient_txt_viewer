@@ -477,7 +477,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v27</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v28</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -490,11 +490,13 @@
         <div class="face-inner">
           <div class="toolbar">
             <button class="btn-primary" id="pickBtn">📁 フォルダを選択</button>
+            <button class="btn-ghost" id="bundleBtn">📄 まとめファイル</button>
             <div class="folder-field" id="folderField">未選択</div>
             <button class="btn-icon" id="refreshBtn" title="再読み込み">⟳</button>
             <button class="btn-ghost" id="installBtn" hidden>📲 インストール</button>
           </div>
           <input type="file" id="folderInput" webkitdirectory multiple accept=".txt" hidden>
+          <input type="file" id="bundleInput" accept=".txt,text/plain" hidden>
           <div class="status-line" id="statusLine"></div>
 
           <div class="list-scroll" id="listScroll">
@@ -568,6 +570,8 @@
   const pickBtn = document.getElementById('pickBtn');
   const refreshBtn = document.getElementById('refreshBtn');
   const folderInput = document.getElementById('folderInput');
+  const bundleBtn = document.getElementById('bundleBtn');
+  const bundleInput = document.getElementById('bundleInput');
   const backBtn = document.getElementById('backBtn');
   const folderField = document.getElementById('folderField');
   const statusLine = document.getElementById('statusLine');
@@ -932,6 +936,7 @@
     }));
   }
   async function loadFolder(handle){
+    lastSourceIsBundle = false;
     statusLine.textContent = '読み込み中…';
     listScroll.innerHTML = '';
     currentHandle = handle;
@@ -1233,7 +1238,61 @@
     renderList(deduped, skipped, dupCount);
   }
 
+  // ---------- まとめファイル(iPhone等フォルダ選択不可の端末向け) ----------
+  // ubie_bundle.txt: 「===== FILE: <元ファイル名> =====」行を区切りに、各患者txtを連結した1ファイル
+  const BUNDLE_SEP_RE = /^===== FILE: (.+?) =====[ \t]*\r?\n/gm;
+  let lastSourceIsBundle = false;
+  function splitBundle(text){
+    const parts = [];
+    const marks = [...text.matchAll(BUNDLE_SEP_RE)];
+    marks.forEach((m, i) => {
+      const start = m.index + m[0].length;
+      const end = i + 1 < marks.length ? marks[i + 1].index : text.length;
+      parts.push({ name: m[1], text: text.slice(start, end) });
+    });
+    return parts;
+  }
+  async function loadBundle(file){
+    statusLine.textContent = '読み込み中…';
+    listScroll.innerHTML = '';
+    wardImages = new Map();
+    folderField.textContent = file.name;
+    lastSourceIsBundle = true;
+    readFailed = 0;
+    let parts;
+    try {
+      parts = splitBundle(await withRetry(() => file.text()));
+    } catch (e){
+      statusLine.textContent = 'まとめファイルの読み込みに失敗しました: ' + e.message;
+      return;
+    }
+    if (parts.length === 0){
+      statusLine.textContent = 'まとめファイルの形式が正しくありません(「===== FILE: ... =====」行が見つかりません)';
+      return;
+    }
+    const records = [];
+    let skipped = 0;
+    for (const p of parts){
+      if (/^(転記済み_)?memo_/.test(p.name)) continue;
+      const rec = parseRecord(p.name, p.text);
+      if (rec){
+        rec.fileStamp = fileStampMs(p.name, file.lastModified);
+        records.push(rec);
+      }
+      else skipped++;
+    }
+    const { records: deduped, dupCount } = dedupeByPid(records);
+    renderList(deduped, skipped, dupCount);
+  }
+  bundleBtn.addEventListener('click', () => bundleInput.click());
+  bundleInput.addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) loadBundle(f);
+    bundleInput.value = '';
+  });
+
   folderInput.addEventListener('change', (e) => {
+    lastSourceIsBundle = false;
     const files = e.target.files;
     if (files && files.length) loadFromFileList(files);
     folderInput.value = ''; // 同じフォルダを選び直せるようにリセット
@@ -1241,6 +1300,7 @@
 
   pickBtn.addEventListener('click', pickFolder);
   refreshBtn.addEventListener('click', () => {
+    if (lastSourceIsBundle){ bundleInput.click(); return; }
     if (SUPPORTS_DIR_PICKER){
       if (currentHandle) loadFolder(currentHandle);
     } else {
