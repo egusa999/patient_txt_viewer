@@ -477,7 +477,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v29</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v30</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -489,19 +489,17 @@
       <div class="face face-front">
         <div class="face-inner">
           <div class="toolbar">
-            <button class="btn-primary" id="pickBtn">📁 フォルダを選択</button>
-            <button class="btn-ghost" id="bundleBtn">📄 まとめファイル</button>
+            <button class="btn-primary" id="bundleBtn">📄 まとめファイルを選択</button>
             <div class="folder-field" id="folderField">未選択</div>
             <button class="btn-icon" id="refreshBtn" title="再読み込み">⟳</button>
             <button class="btn-ghost" id="installBtn" hidden>📲 インストール</button>
           </div>
-          <input type="file" id="folderInput" webkitdirectory multiple accept=".txt" hidden>
           <input type="file" id="bundleInput" accept=".txt,text/plain" hidden>
           <div class="status-line" id="statusLine"></div>
 
           <div class="list-scroll" id="listScroll">
             <div class="empty-state" id="emptyState">
-              左上の「フォルダを選択」から、テキストファイルの入ったフォルダを選んでください。<br>
+              左上の「まとめファイルを選択」から、医師フォルダ内の ubie_bundle.txt を選んでください。<br>
               各ファイル冒頭の「病棟:」「病室:」を読み取り、病棟・病室ごとに一覧表示します。
             </div>
           </div>
@@ -567,9 +565,7 @@
   });
   function flipCardEl(){ return document.getElementById('flipCard'); }
 
-  const pickBtn = document.getElementById('pickBtn');
   const refreshBtn = document.getElementById('refreshBtn');
-  const folderInput = document.getElementById('folderInput');
   const bundleBtn = document.getElementById('bundleBtn');
   const bundleInput = document.getElementById('bundleInput');
   const backBtn = document.getElementById('backBtn');
@@ -582,11 +578,7 @@
   const detailPid = document.getElementById('detailPid');
   const detailBody = document.getElementById('detailBody');
 
-  const DB_NAME = 'wardTextViewerDB';
-  const STORE = 'handles';
-  const KEY = 'lastFolder';
 
-  let currentHandle = null;
 
   // ---------- ward map images ----------
   // ファイル名パターン: 病棟名_YYYYMMDD_HHMMSS.png
@@ -747,35 +739,6 @@
   }
 
 
-  // ---------- IndexedDB: remember last selected folder handle ----------
-  function openDB(){
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => { req.result.createObjectStore(STORE); };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
-  async function saveHandle(handle){
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).put(handle, KEY);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-  async function loadHandle(){
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, 'readonly');
-      const req = tx.objectStore(STORE).get(KEY);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
-    });
-  }
-
-
   // 全角数字(０-９)を半角に変換（実データで年齢等が全角表記のことがあるため）
   function normalizeDigits(s){
     return s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
@@ -927,66 +890,7 @@
     }
     throw lastErr;
   }
-  const BUNDLE_FILE_NAME = 'ubie_bundle.txt'; // 医師フォルダ内に置かれるiPhone向けまとめファイル(フォルダ読み込みでは除外)
   let readFailed = 0;
-  // 1ファイルずつ直列に読むと、OneDrive/SAF経由では1件ごとの待ちが積み上がるため、全件を同時に(ファイル数=患者数と同じ本数の並列で)読む
-  async function runPool(items, worker){
-    let i = 0;
-    await Promise.all(Array.from({ length: items.length }, async () => {
-      while (i < items.length){ const it = items[i++]; await worker(it); }
-    }));
-  }
-  async function loadFolder(handle){
-    lastSourceIsBundle = false;
-    statusLine.textContent = '読み込み中…';
-    listScroll.innerHTML = '';
-    currentHandle = handle;
-    folderField.textContent = handle.name;
-    wardImages = new Map();
-
-    const records = [];
-    let skipped = 0;
-    readFailed = 0;
-
-    try {
-      const entries = [];
-      for await (const entry of handle.values()){
-        if (entry.kind !== 'file') continue;
-        if (/\.png$/i.test(entry.name) ||
-            (/\.txt$/i.test(entry.name) && !/^(転記済み_)?memo_/.test(entry.name) && entry.name !== BUNDLE_FILE_NAME)) entries.push(entry); // memoファイル・まとめファイルは患者記録ではない
-      }
-      await runPool(entries, async (entry) => {
-        if (/\.png$/i.test(entry.name)){
-          try {
-            const file = await entry.getFile();
-            considerWardMapFile(entry.name, file);
-          } catch (e){ /* ignore */ }
-          return;
-        }
-        try {
-          const { file, text } = await withRetry(async () => {
-            const f = await entry.getFile();
-            return { file: f, text: await f.text() };
-          });
-          const rec = parseRecord(entry.name, text);
-          if (rec){
-            rec.fileStamp = fileStampMs(entry.name, file.lastModified);
-            records.push(rec);
-          }
-          else skipped++;
-        } catch (e){
-          readFailed++;
-        }
-      });
-    } catch (e){
-      statusLine.textContent = 'フォルダの読み込みに失敗しました: ' + e.message;
-      return;
-    }
-
-    const { records: deduped, dupCount } = dedupeByPid(records);
-    renderList(deduped, skipped, dupCount);
-  }
-
   function renderList(records, skipped, dupCount){
     dupCount = dupCount || 0;
     listScroll.innerHTML = '';
@@ -1047,7 +951,7 @@
 
     const notes = [];
     if (skipped) notes.push(`${skipped} 件は解析できず除外`);
-    if (readFailed) notes.push(`${readFailed} 件は読み取りに失敗(⟳で再読み込み)`);
+    if (readFailed) notes.push(`${readFailed} 件は読み取りに失敗(⟳で選び直し)`);
     if (dupCount) notes.push(`同一患者の重複 ${dupCount} 件は最新のみ表示`);
     statusLine.textContent = `${records.length} 件を読み込みました${notes.length ? `（${notes.join('、')}）` : ''}。`;
   }
@@ -1180,69 +1084,9 @@
     }, { passive:true });
   })();
 
-  // ---------- folder picking ----------
-  const SUPPORTS_DIR_PICKER = 'showDirectoryPicker' in window;
-
-  async function pickFolder(){
-    if (SUPPORTS_DIR_PICKER){
-      try {
-        const handle = await window.showDirectoryPicker({ mode: 'read' });
-        await saveHandle(handle);
-        await loadFolder(handle);
-      } catch (e){
-        if (e.name !== 'AbortError') statusLine.textContent = 'フォルダの選択に失敗しました。';
-      }
-      return;
-    }
-    // Android等 File System Access API 非対応ブラウザ向けフォールバック。
-    // OneDriveアプリが導入済みなら、選択画面から OneDrive 内のフォルダにも入れる。
-    folderInput.click();
-  }
-
-  async function loadFromFileList(fileList){
-    statusLine.textContent = '読み込み中…';
-    listScroll.innerHTML = '';
-    wardImages = new Map();
-
-    const firstPath = fileList[0] && fileList[0].webkitRelativePath;
-    folderField.textContent = firstPath ? firstPath.split('/')[0] : '選択したフォルダ';
-
-    const records = [];
-    let skipped = 0;
-    readFailed = 0;
-
-    const targets = [];
-    for (const file of fileList){
-      if (/\.png$/i.test(file.name)){
-        considerWardMapFile(file.name, file);
-        continue;
-      }
-      if (!/\.txt$/i.test(file.name)) continue;
-      if (/^(転記済み_)?memo_/.test(file.name) || file.name === BUNDLE_FILE_NAME) continue; // メモ・まとめファイルは患者記録ではない
-      targets.push(file);
-    }
-    await runPool(targets, async (file) => {
-      try {
-        const text = await withRetry(() => file.text());
-        const rec = parseRecord(file.name, text);
-        if (rec){
-          rec.fileStamp = fileStampMs(file.name, file.lastModified);
-          records.push(rec);
-        }
-        else skipped++;
-      } catch (e){
-        readFailed++;
-      }
-    });
-
-    const { records: deduped, dupCount } = dedupeByPid(records);
-    renderList(deduped, skipped, dupCount);
-  }
-
   // ---------- まとめファイル(iPhone等フォルダ選択不可の端末向け) ----------
   // ubie_bundle.txt: 「===== FILE: <元ファイル名> =====」行を区切りに、各患者txtを連結した1ファイル
   const BUNDLE_SEP_RE = /^===== FILE: (.+?) =====[ \t]*\r?\n/gm;
-  let lastSourceIsBundle = false;
   function splitBundle(text){
     const parts = [];
     const marks = [...text.matchAll(BUNDLE_SEP_RE)];
@@ -1258,7 +1102,6 @@
     listScroll.innerHTML = '';
     wardImages = new Map();
     folderField.textContent = file.name;
-    lastSourceIsBundle = true;
     readFailed = 0;
     let parts;
     try {
@@ -1292,23 +1135,8 @@
     bundleInput.value = '';
   });
 
-  folderInput.addEventListener('change', (e) => {
-    lastSourceIsBundle = false;
-    const files = e.target.files;
-    if (files && files.length) loadFromFileList(files);
-    folderInput.value = ''; // 同じフォルダを選び直せるようにリセット
-  });
-
-  pickBtn.addEventListener('click', pickFolder);
-  refreshBtn.addEventListener('click', () => {
-    if (lastSourceIsBundle){ bundleInput.click(); return; }
-    if (SUPPORTS_DIR_PICKER){
-      if (currentHandle) loadFolder(currentHandle);
-    } else {
-      // ハンドルを保持できないため、再読み込みは選び直しになる
-      folderInput.click();
-    }
-  });
+  // 再読み込みは、ファイルを選び直す(ブラウザは選択したファイルを保持できない)
+  refreshBtn.addEventListener('click', () => bundleInput.click());
 
   // ---------- PWA: service worker registration ----------
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
@@ -1340,45 +1168,7 @@
     statusLine.textContent = 'ヒント: インストール可能なアプリとして使うには start_server.bat でローカルサーバー経由で開いてください。';
   }
 
-  // ---------- restore last folder on startup ----------
-  async function restore(){
-    if (!SUPPORTS_DIR_PICKER){
-      // Android等: フォルダの永続アクセスができないため毎回選び直しになる。
-      // その旨を一度だけ案内する。
-      statusLine.textContent = '「フォルダを選択」から毎回フォルダを選んでください（このブラウザでは前回の選択を記憶できません）。';
-      return;
-    }
-    let handle;
-    try {
-      handle = await loadHandle();
-    } catch(e){ return; }
-    if (!handle) return;
-
-    folderField.textContent = handle.name + '（再読込中…）';
-    try {
-      const perm = await handle.queryPermission({ mode:'read' });
-      if (perm === 'granted'){
-        await loadFolder(handle);
-      } else {
-        folderField.textContent = handle.name;
-        statusLine.textContent = '前回のフォルダへのアクセス許可が必要です。';
-        currentHandle = handle;
-        pickBtn.textContent = '🔓 フォルダへのアクセスを許可';
-        pickBtn.addEventListener('click', async function reauth(){
-          const p = await handle.requestPermission({ mode:'read' });
-          if (p === 'granted'){
-            pickBtn.textContent = '📁 フォルダを選択';
-            pickBtn.removeEventListener('click', reauth);
-            await loadFolder(handle);
-          }
-        }, { once:true });
-      }
-    } catch(e){
-      folderField.textContent = '未選択';
-    }
-  }
-
-  restore();
+  statusLine.textContent = '「まとめファイルを選択」から ubie_bundle.txt を選んでください。';
 })();
 </script>
 </body>
