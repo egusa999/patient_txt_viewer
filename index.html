@@ -223,6 +223,36 @@
     padding-right:4px;
     margin-right:-4px;
   }
+  /* ---- 本日の手術予定(タップで拡大) ---- */
+  .surgery-box{
+    display:block;
+    width:100%;
+    margin:0 0 14px;
+    padding:0;
+    text-align:left;
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:14px;
+    overflow:hidden;
+    font:inherit;
+    color:inherit;
+    cursor:pointer;
+  }
+  .surgery-box[hidden]{ display:none; }
+  .surgery-cap{
+    background:var(--ward-soft);
+    color:var(--ward);
+    padding:8px 14px;
+    font-size:13px;
+    font-weight:700;
+  }
+  .surgery-box img{
+    display:block;
+    width:100%;
+    max-height:180px;
+    object-fit:cover;
+    object-position:top;
+  }
   .ward-group{
     margin-bottom:16px;
     border:1px solid var(--line);
@@ -477,7 +507,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v33</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v34</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -498,6 +528,10 @@
           <input type="file" id="folderInput" webkitdirectory multiple hidden>
           <input type="file" id="bundleInput" accept=".txt,.png,text/plain,image/png" multiple hidden>
           <div class="status-line" id="statusLine"></div>
+          <button type="button" class="surgery-box" id="surgeryBox" hidden>
+            <div class="surgery-cap" id="surgeryCap"></div>
+            <img id="surgeryImg" alt="本日の手術予定">
+          </button>
 
           <div class="list-scroll" id="listScroll">
             <div class="empty-state" id="emptyState">
@@ -605,6 +639,34 @@
       wardImages.set(ward, { file, stamp });
     }
   }
+
+  // ---------- 本日の手術予定(病棟マップと同じ「名前_YYYYMMDD_HHMMSS.png」形式。名前=手術予定) ----------
+  const SURGERY_MAP_NAME = '手術予定';
+  const surgeryBox = document.getElementById('surgeryBox');
+  const surgeryImg = document.getElementById('surgeryImg');
+  const surgeryCap = document.getElementById('surgeryCap');
+  let surgeryUrl = null;
+  function todayYmd(){
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  }
+  // 作成日が本日のものだけ表示する(古い予定を今日のものと誤認させない)
+  function updateSurgeryBox(){
+    if (surgeryUrl){ URL.revokeObjectURL(surgeryUrl); surgeryUrl = null; }
+    const entry = wardImages.get(SURGERY_MAP_NAME);
+    if (!entry || entry.stamp.slice(0, 8) !== todayYmd()){
+      surgeryBox.hidden = true;
+      surgeryImg.removeAttribute('src');
+      return;
+    }
+    const file = entry.file;
+    const blob = (file.type && file.type.startsWith('image/')) ? file : new Blob([file], { type: 'image/png' });
+    surgeryUrl = URL.createObjectURL(blob);
+    surgeryImg.src = surgeryUrl;
+    surgeryCap.textContent = '本日の手術予定(タップで拡大)';
+    surgeryBox.hidden = false;
+  }
+  surgeryBox.addEventListener('click', () => openWardMap(SURGERY_MAP_NAME));
 
   function openWardMap(wardName){
     const entry = wardImages.get(wardName);
@@ -930,6 +992,7 @@
   }
   let readFailed = 0;
   function renderList(records, skipped, dupCount){
+    updateSurgeryBox();
     dupCount = dupCount || 0;
     listScroll.innerHTML = '';
 
@@ -1139,6 +1202,7 @@
     statusLine.textContent = '読み込み中…';
     listScroll.innerHTML = '';
     wardImages = new Map();
+    surgeryBox.hidden = true;
     for (const p of pngs) considerWardMapFile(p.name, p);
     folderField.textContent = label;
     readFailed = 0;
