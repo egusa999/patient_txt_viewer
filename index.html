@@ -507,7 +507,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v35</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v36</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -526,7 +526,7 @@
             <button class="btn-ghost" id="installBtn" hidden>📲 インストール</button>
           </div>
           <input type="file" id="folderInput" webkitdirectory multiple hidden>
-          <input type="file" id="bundleInput" accept=".txt,.png,text/plain,image/png" multiple hidden>
+          <input type="file" id="bundleInput" accept=".txt,text/plain" hidden>
           <div class="status-line" id="statusLine"></div>
           <button type="button" class="surgery-box" id="surgeryBox" hidden>
             <div class="surgery-cap" id="surgeryCap"></div>
@@ -1200,12 +1200,11 @@
     });
     return parts;
   }
-  async function loadBundle(file, pngs = [], label = file.name){
+  async function loadBundle(file, label = file.name){
     statusLine.textContent = '読み込み中…';
     listScroll.innerHTML = '';
     wardImages = new Map();
     surgeryBox.hidden = true;
-    for (const p of pngs) considerWardMapFile(p.name, p);
     folderField.textContent = label;
     readFailed = 0;
     let parts;
@@ -1243,7 +1242,7 @@
     const { records: deduped, dupCount } = dedupeByPid(records);
     renderList(deduped, skipped, dupCount);
   }
-  // ---------- フォルダ(File System Access API対応ブラウザ): フォルダ内のまとめファイルと病棟マップを読む ----------
+  // ---------- フォルダ(File System Access API対応ブラウザ): フォルダ内のまとめファイル(ubie_bundle.txt)だけを読む。病棟マップ・手術予定の画像もまとめファイル内のbase64から復元する ----------
   const SUPPORTS_DIR_PICKER = 'showDirectoryPicker' in window;
 
   async function loadFolder(handle){
@@ -1257,14 +1256,7 @@
       listScroll.innerHTML = '';
       return;
     }
-    const pngs = [];
-    try {
-      for await (const entry of handle.values()){
-        if (entry.kind !== 'file' || !/\.png$/i.test(entry.name)) continue;
-        try { pngs.push(await entry.getFile()); } catch (e){ /* 読めない画像は無視 */ }
-      }
-    } catch (e){ /* マップ無しで続行 */ }
-    await loadBundle(file, pngs, handle.name);
+    await loadBundle(file, handle.name);
   }
 
   let lastPickWasFolderInput = false;
@@ -1286,9 +1278,9 @@
     }
   });
 
-  // ---------- ファイル選択(iPhone/Android等フォルダ選択不可の端末): まとめファイル(+病棟マップPNG)を選ぶ ----------
+  // ---------- ファイル選択(フォルダ選択不可の端末): まとめファイルを選ぶ ----------
   bundleBtn.addEventListener('click', () => bundleInput.click());
-  // 選択された複数ファイルから、まとめファイルと病棟マップPNGを取り出して表示する
+  // 選択されたファイルの中からまとめファイルを取り出して表示する
   function loadSelectedFiles(files, label){
     const bundle = files.find(f => f.name === BUNDLE_FILE_NAME);
     if (!bundle){
@@ -1297,16 +1289,16 @@
       return;
     }
     currentHandle = null;
-    loadBundle(bundle, files.filter(f => /\.png$/i.test(f.name)), label || bundle.name);
+    loadBundle(bundle, label || bundle.name);
   }
   bundleInput.addEventListener('change', (e) => {
     lastPickWasFolderInput = false;
     const files = [...(e.target.files || [])];
-    // フォルダ階層を選べない端末では、txtが1つだけならその名前に関わらずまとめファイルとして読む
+    // txtが1つだけ選ばれたら、その名前に関わらずまとめファイルとして読む
     const txts = files.filter(f => /\.txt$/i.test(f.name));
     if (txts.length === 1 && txts[0].name !== BUNDLE_FILE_NAME){
       currentHandle = null;
-      loadBundle(txts[0], files.filter(f => /\.png$/i.test(f.name)));
+      loadBundle(txts[0]);
     } else if (files.length) loadSelectedFiles(files);
     bundleInput.value = '';
   });
