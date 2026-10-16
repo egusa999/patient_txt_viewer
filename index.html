@@ -477,7 +477,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v32</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v33</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -1157,6 +1157,16 @@
     let skipped = 0;
     for (const p of parts){
       if (/^(転記済み_)?memo_/.test(p.name)) continue;
+      // 病棟マップ: 区切り行のファイル名が .png のパートは、本文がbase64の画像データ
+      const png = p.name.match(/^(.+?\.png)(?:\s*\(base64\))?$/i);
+      if (png){
+        try {
+          const bin = atob(p.text.replace(/\s+/g, ''));
+          const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+          considerWardMapFile(png[1], new File([bytes], png[1], { type: 'image/png', lastModified: file.lastModified }));
+        } catch (e){ /* 壊れた画像は無視(患者一覧には影響させない) */ }
+        continue;
+      }
       const rec = parseRecord(p.name, p.text);
       if (rec){
         rec.fileStamp = fileStampMs(p.name, file.lastModified);
