@@ -477,7 +477,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v28</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v29</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -927,6 +927,7 @@
     }
     throw lastErr;
   }
+  const BUNDLE_FILE_NAME = 'ubie_bundle.txt'; // 医師フォルダ内に置かれるiPhone向けまとめファイル(フォルダ読み込みでは除外)
   let readFailed = 0;
   // 1ファイルずつ直列に読むと、OneDrive/SAF経由では1件ごとの待ちが積み上がるため、全件を同時に(ファイル数=患者数と同じ本数の並列で)読む
   async function runPool(items, worker){
@@ -952,7 +953,7 @@
       for await (const entry of handle.values()){
         if (entry.kind !== 'file') continue;
         if (/\.png$/i.test(entry.name) ||
-            (/\.txt$/i.test(entry.name) && !/^(転記済み_)?memo_/.test(entry.name))) entries.push(entry); // memoファイルは患者記録ではない
+            (/\.txt$/i.test(entry.name) && !/^(転記済み_)?memo_/.test(entry.name) && entry.name !== BUNDLE_FILE_NAME)) entries.push(entry); // memoファイル・まとめファイルは患者記録ではない
       }
       await runPool(entries, async (entry) => {
         if (/\.png$/i.test(entry.name)){
@@ -1217,7 +1218,7 @@
         continue;
       }
       if (!/\.txt$/i.test(file.name)) continue;
-      if (/^(転記済み_)?memo_/.test(file.name)) continue; // メモファイルは患者記録ではない
+      if (/^(転記済み_)?memo_/.test(file.name) || file.name === BUNDLE_FILE_NAME) continue; // メモ・まとめファイルは患者記録ではない
       targets.push(file);
     }
     await runPool(targets, async (file) => {
