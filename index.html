@@ -508,7 +508,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v37</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v38</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -1265,9 +1265,7 @@
   }
 
   let lastPickWasFolderInput = false;
-  let pendingReauth = false; // 起動時の「アクセスを許可」ボタン表示中は、通常のフォルダ選択を動かさない
   pickBtn.addEventListener('click', async () => {
-    if (pendingReauth) return;
     if (!SUPPORTS_DIR_PICKER){
       // Android等 File System Access API 非対応ブラウザ: フォルダ選択入力で代替(フォルダの記憶は不可)
       lastPickWasFolderInput = true;
@@ -1372,20 +1370,9 @@
       if (perm === 'granted'){
         await loadFolder(handle);
       } else {
-        folderField.textContent = handle.name;
-        statusLine.textContent = '前回のフォルダへのアクセス許可が必要です。';
-        currentHandle = handle;
-        pickBtn.textContent = '🔓 フォルダへのアクセスを許可';
-        pendingReauth = true;
-        pickBtn.addEventListener('click', async function reauth(){
-          pendingReauth = false;
-          const p = await handle.requestPermission({ mode:'read' });
-          if (p === 'granted'){
-            pickBtn.textContent = '📁 フォルダを選択';
-            pickBtn.removeEventListener('click', reauth);
-            await loadFolder(handle);
-          }
-        }, { once:true });
+        // 許可が切れている場合は何も復元しない(通常の「フォルダを選択」から選び直す)
+        folderField.textContent = '未選択';
+        statusLine.textContent = '「フォルダを選択」から医師フォルダを選んでください。';
       }
     } catch(e){
       folderField.textContent = '未選択';
