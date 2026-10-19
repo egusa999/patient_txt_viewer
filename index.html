@@ -377,6 +377,7 @@
     background:#FCFBF8; border:1px solid var(--line); border-radius:12px; color:inherit;
   }
   .memo-row{ display:flex; align-items:center; gap:10px; }
+  .memo-save-row{ margin-top:14px; flex-wrap:wrap; }
   .memo-msg{ font-size:11.5px; color:var(--ink-soft); }
   .detail-body .ln-h1{ font-weight:700; color:blue; font-size:1.25em; }
   .detail-body .ln-h2{ font-weight:700; font-size:1.125em; }
@@ -507,7 +508,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v36</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v37</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -539,6 +540,10 @@
               各ファイル冒頭の「病棟:」「病室:」を読み取り、病棟・病室ごとに一覧表示します。
             </div>
           </div>
+          <div class="memo-row memo-save-row">
+            <button class="btn-primary" id="memoSaveBtn">📝 本日のメモを一括保存</button>
+            <span class="memo-msg" id="memoMsg"></span>
+          </div>
         </div>
       </div>
 
@@ -553,10 +558,7 @@
           <div class="detail-body" id="detailBody"></div>
           <div class="memo-box">
             <textarea id="memoText" placeholder="メモ(カルテ「#」欄へ転記。行頭に ■ / 【 を付けると太字になります)"></textarea>
-            <div class="memo-row">
-              <button class="btn-primary" id="memoSaveBtn">📝 本日のメモをtxtで保存</button>
-              <span class="memo-msg" id="memoMsg"></span>
-            </div>
+            <div class="memo-msg">入力したメモは自動で保持されます。保存は一覧画面の最後にある「一括保存」で行います。</div>
           </div>
         </div>
       </div>
@@ -1099,7 +1101,7 @@
   function saveDay(obj){ try { localStorage.setItem(dayKey(), JSON.stringify(obj)); } catch(e){} }
   function updateMemoCount(){
     const n = Object.values(loadDay()).filter(m => m.text && m.text.trim()).length;
-    memoSaveBtn.textContent = `📝 本日のメモ(${n}件)をtxtで保存`;
+    memoSaveBtn.textContent = `📝 本日のメモ(${n}件)を一括保存`;
   }
 
   memoText.addEventListener('input', () => {
@@ -1137,6 +1139,8 @@
     memoMsg.textContent = `${name} に ${blocks.length} 名分を保存しました。PCの共有フォルダへ置いてください。`;
   });
 
+  updateMemoCount();
+
   function openDetail(rec){
     currentRec = rec;
     const m = rec.pid ? loadDay()[rec.pid] : null;
@@ -1154,6 +1158,7 @@
   }
 
   function backToList(){
+    updateMemoCount();
     flipCard.classList.remove('flipped');
   }
 
