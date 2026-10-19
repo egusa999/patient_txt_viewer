@@ -508,7 +508,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v38</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v39</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -520,13 +520,11 @@
       <div class="face face-front">
         <div class="face-inner">
           <div class="toolbar">
-            <button class="btn-primary" id="pickBtn">📁 フォルダを選択</button>
-            <button class="btn-ghost" id="bundleBtn">📄 ファイルを選択</button>
+            <button class="btn-primary" id="bundleBtn">📄 まとめファイルを選択</button>
             <div class="folder-field" id="folderField">未選択</div>
             <button class="btn-icon" id="refreshBtn" title="再読み込み">⟳</button>
             <button class="btn-ghost" id="installBtn" hidden>📲 インストール</button>
           </div>
-          <input type="file" id="folderInput" webkitdirectory multiple hidden>
           <input type="file" id="bundleInput" accept=".txt,text/plain" hidden>
           <div class="status-line" id="statusLine"></div>
           <button type="button" class="surgery-box" id="surgeryBox" hidden>
@@ -536,7 +534,7 @@
 
           <div class="list-scroll" id="listScroll">
             <div class="empty-state" id="emptyState">
-              左上の「フォルダを選択」から医師フォルダを選んでください(フォルダを選べない端末は「ファイルを選択」で ubie_bundle.txt を選択)。<br>
+              左上の「まとめファイルを選択」から、医師フォルダ内の ubie_bundle.txt を選んでください。<br>
               各ファイル冒頭の「病棟:」「病室:」を読み取り、病棟・病室ごとに一覧表示します。
             </div>
           </div>
@@ -604,13 +602,6 @@
   function flipCardEl(){ return document.getElementById('flipCard'); }
 
   const refreshBtn = document.getElementById('refreshBtn');
-  const pickBtn = document.getElementById('pickBtn');
-  const folderInput = document.getElementById('folderInput');
-  const DB_NAME = 'wardTextViewerDB';
-  const STORE = 'handles';
-  const KEY = 'lastFolder';
-  const BUNDLE_FILE_NAME = 'ubie_bundle.txt'; // 医師フォルダ内のまとめファイル
-  let currentHandle = null;
   const bundleBtn = document.getElementById('bundleBtn');
   const bundleInput = document.getElementById('bundleInput');
   const backBtn = document.getElementById('backBtn');
@@ -809,35 +800,6 @@
 
   function resetMapZoom(){
     if (window.resetMapZoomImpl) window.resetMapZoomImpl();
-  }
-
-
-  // ---------- IndexedDB: remember last selected folder handle ----------
-  function openDB(){
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => { req.result.createObjectStore(STORE); };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
-  async function saveHandle(handle){
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).put(handle, KEY);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-  async function loadHandle(){
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, 'readonly');
-      const req = tx.objectStore(STORE).get(KEY);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
-    });
   }
 
 
@@ -1247,79 +1209,15 @@
     const { records: deduped, dupCount } = dedupeByPid(records);
     renderList(deduped, skipped, dupCount);
   }
-  // ---------- フォルダ(File System Access API対応ブラウザ): フォルダ内のまとめファイル(ubie_bundle.txt)だけを読む。病棟マップ・手術予定の画像もまとめファイル内のbase64から復元する ----------
-  const SUPPORTS_DIR_PICKER = 'showDirectoryPicker' in window;
-
-  async function loadFolder(handle){
-    currentHandle = handle;
-    folderField.textContent = handle.name;
-    let file;
-    try {
-      file = await (await handle.getFileHandle(BUNDLE_FILE_NAME)).getFile();
-    } catch (e){
-      statusLine.textContent = `このフォルダに ${BUNDLE_FILE_NAME} が見つかりません(医師フォルダを選んでください)`;
-      listScroll.innerHTML = '';
-      return;
-    }
-    await loadBundle(file, handle.name);
-  }
-
-  let lastPickWasFolderInput = false;
-  pickBtn.addEventListener('click', async () => {
-    if (!SUPPORTS_DIR_PICKER){
-      // Android等 File System Access API 非対応ブラウザ: フォルダ選択入力で代替(フォルダの記憶は不可)
-      lastPickWasFolderInput = true;
-      folderInput.click();
-      return;
-    }
-    try {
-      const handle = await window.showDirectoryPicker({ mode: 'read' });
-      await saveHandle(handle);
-      await loadFolder(handle);
-    } catch (e){
-      if (e.name !== 'AbortError') statusLine.textContent = 'フォルダの選択に失敗しました。';
-    }
-  });
-
-  // ---------- ファイル選択(フォルダ選択不可の端末): まとめファイルを選ぶ ----------
+  // ---------- まとめファイル(ubie_bundle.txt)の選択。病棟マップ・手術予定の画像もこのファイル内のbase64から復元する ----------
   bundleBtn.addEventListener('click', () => bundleInput.click());
-  // 選択されたファイルの中からまとめファイルを取り出して表示する
-  function loadSelectedFiles(files, label){
-    const bundle = files.find(f => f.name === BUNDLE_FILE_NAME);
-    if (!bundle){
-      statusLine.textContent = `選択内に ${BUNDLE_FILE_NAME} が見つかりません(医師フォルダを選んでください)`;
-      listScroll.innerHTML = '';
-      return;
-    }
-    currentHandle = null;
-    loadBundle(bundle, label || bundle.name);
-  }
   bundleInput.addEventListener('change', (e) => {
-    lastPickWasFolderInput = false;
-    const files = [...(e.target.files || [])];
-    // txtが1つだけ選ばれたら、その名前に関わらずまとめファイルとして読む
-    const txts = files.filter(f => /\.txt$/i.test(f.name));
-    if (txts.length === 1 && txts[0].name !== BUNDLE_FILE_NAME){
-      currentHandle = null;
-      loadBundle(txts[0]);
-    } else if (files.length) loadSelectedFiles(files);
+    const f = e.target.files && e.target.files[0];
+    if (f) loadBundle(f);
     bundleInput.value = '';
   });
-  folderInput.addEventListener('change', (e) => {
-    const files = [...(e.target.files || [])];
-    const first = files[0] && files[0].webkitRelativePath;
-    // 選んだフォルダ直下のファイルだけを対象にする(下位フォルダの同名ファイルは除く)
-    const root = first ? first.split('/')[0] : '';
-    const direct = files.filter(f => !f.webkitRelativePath || f.webkitRelativePath.split('/').length === 2);
-    if (files.length) loadSelectedFiles(direct, root || '選択したフォルダ');
-    folderInput.value = '';
-  });
-
-  // 再読み込み: フォルダを覚えていればそれを読み直す。無ければファイルを選び直す
-  refreshBtn.addEventListener('click', () => {
-    if (currentHandle) loadFolder(currentHandle);
-    else (lastPickWasFolderInput ? folderInput : bundleInput).click();
-  });
+  // 再読み込み: ブラウザは選択したファイルを保持できないため、ファイルを選び直す
+  refreshBtn.addEventListener('click', () => bundleInput.click());
 
   // ---------- PWA: service worker registration ----------
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
@@ -1351,35 +1249,7 @@
     statusLine.textContent = 'ヒント: インストール可能なアプリとして使うには start_server.bat でローカルサーバー経由で開いてください。';
   }
 
-  // ---------- restore last folder on startup ----------
-  async function restore(){
-    if (!SUPPORTS_DIR_PICKER){
-      // iPhone/Android等: フォルダの永続アクセスができないため毎回ファイルを選ぶ。
-      statusLine.textContent = '「フォルダを選択」から医師フォルダを毎回選んでください(このブラウザでは前回の選択を記憶できません)。';
-      return;
-    }
-    let handle;
-    try {
-      handle = await loadHandle();
-    } catch(e){ return; }
-    if (!handle) return;
-
-    folderField.textContent = handle.name + '（再読込中…）';
-    try {
-      const perm = await handle.queryPermission({ mode:'read' });
-      if (perm === 'granted'){
-        await loadFolder(handle);
-      } else {
-        // 許可が切れている場合は何も復元しない(通常の「フォルダを選択」から選び直す)
-        folderField.textContent = '未選択';
-        statusLine.textContent = '「フォルダを選択」から医師フォルダを選んでください。';
-      }
-    } catch(e){
-      folderField.textContent = '未選択';
-    }
-  }
-
-  restore();
+  statusLine.textContent = '「まとめファイルを選択」から ubie_bundle.txt を選んでください。';
 })();
 </script>
 </body>
