@@ -512,7 +512,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v41</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v42</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -1038,7 +1038,7 @@
   // 優先順位もclipboard.pyのresolve_line_styleと同じ: DPC行 > ■ > 【 > ★ > 手術名の行
   const SURGERY_LINE_RE = /^\d{4}\/\d{1,2}\/\d{1,2}\s*(?:Rt|Lt|Bil|Bilat|Both)\b/i;
   function lineClass(line){
-    if (line.startsWith('DPC:')) {
+    if (line.replace(/^[▲●]+/, '').startsWith('DPC:')) {
       if (line.includes('超過')) return 'ln-dpc-over';
       if (line.includes('現在1期') || line.includes('現在2期')) return 'ln-dpc-in';
     }
