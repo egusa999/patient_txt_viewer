@@ -381,6 +381,10 @@
   .memo-msg{ font-size:11.5px; color:var(--ink-soft); }
   .detail-body .ln-h1{ font-weight:700; color:blue; font-size:1.25em; }
   .detail-body .ln-h2{ font-weight:700; font-size:1.125em; }
+  .detail-body .ln-star{ font-weight:700; color:blue; }
+  .detail-body .ln-surg{ font-weight:700; color:red; }
+  .detail-body .ln-dpc-over{ font-weight:700; color:red; font-size:1.25em; }
+  .detail-body .ln-dpc-in{ font-weight:700; color:blue; }
   .detail-body{
     white-space:pre-wrap;
     word-break:break-word;
@@ -508,7 +512,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v40</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v41</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -1030,11 +1034,24 @@
   }
 
   // ---------- detail view / flip navigation ----------
-  // カルテ転記と同じ行頭マーカー規則: 「■」=+2pt太字青、「【」=+1pt太字(rpa_common/karte_ops/clipboard.py参照)
+  // カルテ転記と同じ行頭マーカー規則: 「■」=+2pt太字青、「【」=+1pt太字、「★」=太字青、手術名の行=太字赤、DPC行(超過=赤+2pt/1期2期=青)(rpa_common/karte_ops/clipboard.py参照)
+  // 優先順位もclipboard.pyのresolve_line_styleと同じ: DPC行 > ■ > 【 > ★ > 手術名の行
+  const SURGERY_LINE_RE = /^\d{4}\/\d{1,2}\/\d{1,2}\s*(?:Rt|Lt|Bil|Bilat|Both)\b/i;
+  function lineClass(line){
+    if (line.startsWith('DPC:')) {
+      if (line.includes('超過')) return 'ln-dpc-over';
+      if (line.includes('現在1期') || line.includes('現在2期')) return 'ln-dpc-in';
+    }
+    if (line.startsWith('■')) return 'ln-h1';
+    if (line.startsWith('【')) return 'ln-h2';
+    if (line.startsWith('★')) return 'ln-star';
+    if (SURGERY_LINE_RE.test(line)) return 'ln-surg';
+    return '';
+  }
   function renderDetailText(text){
     const frag = document.createDocumentFragment();
     text.split('\n').forEach((line, i, arr) => {
-      const cls = line.startsWith('■') ? 'ln-h1' : line.startsWith('【') ? 'ln-h2' : '';
+      const cls = lineClass(line);
       const nl = i < arr.length - 1 ? '\n' : '';
       if (cls) {
         const span = document.createElement('span');
