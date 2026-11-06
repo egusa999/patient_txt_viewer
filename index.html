@@ -379,12 +379,6 @@
   .memo-row{ display:flex; align-items:center; gap:10px; }
   .memo-save-row{ margin-top:14px; flex-wrap:wrap; }
   .memo-msg{ font-size:11.5px; color:var(--ink-soft); }
-  .detail-body .ln-h1{ font-weight:700; color:blue; font-size:1.25em; }
-  .detail-body .ln-h2{ font-weight:700; font-size:1.125em; }
-  .detail-body .ln-star{ font-weight:700; color:blue; }
-  .detail-body .ln-surg{ font-weight:700; color:red; }
-  .detail-body .ln-dpc-over{ font-weight:700; color:red; font-size:1.25em; }
-  .detail-body .ln-dpc-in{ font-weight:700; color:blue; }
   .detail-body{
     white-space:pre-wrap;
     word-break:break-word;
@@ -512,7 +506,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v43</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v44</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -1035,28 +1029,179 @@
 
   // ---------- detail view / flip navigation ----------
   // カルテ転記と同じ行頭マーカー規則: 「■」=+2pt太字青、「【」=+1pt太字、「★」=太字青、手術名の行=太字赤、DPC行(超過=赤+2pt/1期2期=青)(rpa_common/karte_ops/clipboard.py参照)
-  // 優先順位もclipboard.pyのresolve_line_styleと同じ: DPC行 > ■ > 【 > ★ > 手術名の行
-  const SURGERY_LINE_RE = /^\d{4}\/\d{1,2}\/\d{1,2}\s*(?:Rt|Lt|Bil|Bilat|Both)\b/i;
-  function lineClass(line){
-    if (line.replace(/^[▲●]+/, '').startsWith('DPC:')) {
-      if (line.includes('超過') || line.startsWith('▲')) return 'ln-dpc-over';
-      if (line.includes('現在1期') || line.includes('現在2期')) return 'ln-dpc-in';
+  // 行書式の規則表。上から順に最初に合った規則を適用(優先順位は転記側 clipboard.py resolve_line_style と同じ)。
+  // 内蔵の既定は tools/gen_line_styles.py が constants.py から生成する。まとめファイルに line_styles.json が同梱されていればそちらを優先。
+  // when: prefix=行頭(skipLeadingの文字は読み飛ばして判定) / startsWith=行頭(生) / contains=どれか含む / regex+flags。指定したものは全て満たすこと。
+  // style: bold / color(CSS色名か#hex) / scale(基本サイズの倍率)
+  // LINE_RULES_BEGIN (自動生成: python3 tools/gen_line_styles.py)
+  const DEFAULT_LINE_RULES = {
+    "version": 1,
+    "rules": [
+      {
+        "name": "dpc-over-text",
+        "when": {
+          "prefix": "DPC:",
+          "skipLeading": "▲●",
+          "contains": [
+            "超過"
+          ]
+        },
+        "style": {
+          "bold": true,
+          "color": "red",
+          "scale": 1.25
+        }
+      },
+      {
+        "name": "dpc-over-mark",
+        "when": {
+          "prefix": "DPC:",
+          "skipLeading": "▲●",
+          "startsWith": "▲"
+        },
+        "style": {
+          "bold": true,
+          "color": "red",
+          "scale": 1.25
+        }
+      },
+      {
+        "name": "dpc-within",
+        "when": {
+          "prefix": "DPC:",
+          "skipLeading": "▲●",
+          "contains": [
+            "現在1期",
+            "現在2期"
+          ]
+        },
+        "style": {
+          "bold": true,
+          "color": "blue"
+        }
+      },
+      {
+        "name": "houkatsu-over",
+        "when": {
+          "prefix": "地域包括ケア病棟:",
+          "contains": [
+            "40日目以降"
+          ]
+        },
+        "style": {
+          "bold": true,
+          "color": "red",
+          "scale": 1.25
+        }
+      },
+      {
+        "name": "houkatsu",
+        "when": {
+          "prefix": "地域包括ケア病棟:"
+        },
+        "style": {
+          "bold": true,
+          "color": "blue"
+        }
+      },
+      {
+        "name": "heading",
+        "when": {
+          "prefix": "■"
+        },
+        "style": {
+          "bold": true,
+          "color": "blue",
+          "scale": 1.25
+        }
+      },
+      {
+        "name": "subheading",
+        "when": {
+          "prefix": "【"
+        },
+        "style": {
+          "bold": true,
+          "scale": 1.125
+        }
+      },
+      {
+        "name": "star",
+        "when": {
+          "prefix": "★"
+        },
+        "style": {
+          "bold": true,
+          "color": "blue"
+        }
+      },
+      {
+        "name": "surgery",
+        "when": {
+          "regex": "^\\d{4}/\\d{1,2}/\\d{1,2}\\s*(?:Rt|Lt|Bil|Bilat|Both)\\b",
+          "flags": "i"
+        },
+        "style": {
+          "bold": true,
+          "color": "red"
+        }
+      }
+    ]
+  };
+  // LINE_RULES_END
+  let lineRules = [];
+  const COLOR_RE = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/;
+  // 規則JSONを検証して内部形式へ。壊れた規則は捨てる(全滅なら null)
+  function compileLineRules(doc){
+    if (!doc || !Array.isArray(doc.rules)) return null;
+    const out = [];
+    for (const r of doc.rules){
+      try {
+        const w = r.when || {}, st = r.style || {};
+        const test = {
+          prefix: typeof w.prefix === 'string' ? w.prefix : null,
+          skip: typeof w.skipLeading === 'string' ? w.skipLeading : '',
+          startsWith: typeof w.startsWith === 'string' ? w.startsWith : null,
+          contains: Array.isArray(w.contains) ? w.contains.filter(x => typeof x === 'string') : null,
+          re: typeof w.regex === 'string' ? new RegExp(w.regex, /^[gimsuy]*$/.test(w.flags || '') ? (w.flags || '').replace(/g|y/g, '') : '') : null,
+        };
+        if (test.prefix === null && test.startsWith === null && !test.contains && !test.re) continue;
+        const scale = Number(st.scale);
+        out.push({
+          test,
+          bold: st.bold === true,
+          color: typeof st.color === 'string' && COLOR_RE.test(st.color) ? st.color : '',
+          scale: scale >= 0.8 && scale <= 2 ? scale : 1,
+        });
+      } catch (e){ /* 壊れた規則は無視 */ }
     }
-    if (line.startsWith('地域包括ケア病棟:')) return line.includes('40日目以降') ? 'ln-dpc-over' : 'ln-dpc-in';
-    if (line.startsWith('■')) return 'ln-h1';
-    if (line.startsWith('【')) return 'ln-h2';
-    if (line.startsWith('★')) return 'ln-star';
-    if (SURGERY_LINE_RE.test(line)) return 'ln-surg';
-    return '';
+    return out.length ? out : null;
   }
+  function lineRuleMatches(t, line){
+    if (t.prefix !== null) {
+      let i = 0;
+      while (i < line.length && t.skip.includes(line[i])) i++;
+      if (!line.startsWith(t.prefix, i)) return false;
+    }
+    if (t.startsWith !== null && !line.startsWith(t.startsWith)) return false;
+    if (t.contains && !t.contains.some(x => line.includes(x))) return false;
+    if (t.re && !t.re.test(line)) return false;
+    return true;
+  }
+  function findLineRule(line){
+    return lineRules.find(r => lineRuleMatches(r.test, line)) || null;
+  }
+  lineRules = compileLineRules(DEFAULT_LINE_RULES) || [];
   function renderDetailText(text){
     const frag = document.createDocumentFragment();
     text.split('\n').forEach((line, i, arr) => {
-      const cls = lineClass(line);
+      const rule = findLineRule(line);
       const nl = i < arr.length - 1 ? '\n' : '';
-      if (cls) {
+      if (rule) {
         const span = document.createElement('span');
-        span.className = cls;
+        if (rule.bold) span.style.fontWeight = '700';
+        if (rule.color) span.style.color = rule.color;
+        if (rule.scale !== 1) span.style.fontSize = rule.scale + 'em';
         span.textContent = line;
         frag.appendChild(span);
         if (nl) frag.appendChild(document.createTextNode(nl));
@@ -1205,7 +1350,13 @@
     }
     const records = [];
     let skipped = 0;
+    // 書式規則: まとめファイルに line_styles.json があればそれを使う(無い・壊れていれば内蔵の既定)
+    lineRules = compileLineRules(DEFAULT_LINE_RULES) || [];
     for (const p of parts){
+      if (p.name === 'line_styles.json'){
+        try { lineRules = compileLineRules(JSON.parse(p.text)) || lineRules; } catch (e){ /* 壊れていたら既定のまま */ }
+        continue;
+      }
       if (/^(転記済み_)?memo_/.test(p.name)) continue;
       // 病棟マップ: 区切り行のファイル名が .png のパートは、本文がbase64の画像データ
       const png = p.name.match(/^(.+?\.png)(?:\s*\(base64\))?$/i);
