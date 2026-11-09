@@ -506,7 +506,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v45</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v46</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -1074,6 +1074,26 @@
             "現在1期",
             "現在2期"
           ]
+        },
+        "style": {
+          "bold": true,
+          "color": "blue"
+        }
+      },
+      {
+        "name": "lab-high",
+        "when": {
+          "regex": "^↑高値：(?!\\s*無し\\s*$)"
+        },
+        "style": {
+          "bold": true,
+          "color": "red"
+        }
+      },
+      {
+        "name": "lab-low",
+        "when": {
+          "regex": "^↓低値：(?!\\s*無し\\s*$)"
         },
         "style": {
           "bold": true,
