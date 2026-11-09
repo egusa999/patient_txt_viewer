@@ -506,7 +506,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v46</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v47</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -820,12 +820,12 @@
     let ward = null, room = null;
     for (const line of lines){
       if (!ward){
-        const m = line.match(/^\s*病棟[:：]\s*(.+?)\s*$/);
-        if (m) { ward = m[1]; continue; }
+        const m = line.match(/(?:^|[\s　])病棟[:：]\s*([^\s　]+)/);
+        if (m) { ward = m[1]; }
       }
       if (!room){
-        const m = line.match(/^\s*病室[:：]\s*(.+?)\s*$/);
-        if (m) { room = m[1]; continue; }
+        const m = line.match(/(?:^|[\s　])病室[:：]\s*([^\s　]+)/);
+        if (m) { room = m[1]; }
       }
       if (ward && room) break;
     }
