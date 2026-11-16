@@ -506,7 +506,7 @@
   <div class="brand">
     <span class="ring-dots"><span></span><span></span><span></span></span>
     <div>
-      <h1>病棟テキストビューア<span class="ver">v47</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
+      <h1>病棟テキストビューア<span class="ver">v48</span></h1> <!-- sw.js の CACHE_VERSION と同じ値に更新すること -->
       <div class="sub">WARD &nbsp;/&nbsp; ROOM &nbsp;TEXT&nbsp; VIEWER</div>
     </div>
   </div>
@@ -874,14 +874,24 @@
     // 手術日から術後日数を算出（当日基準）。「YYYY/MM/DD」「YYYY年M月D日」双方に対応
     let postOpDays = null;
     // 江草Dr形式は先頭の手術行「YYYY/MM/DD Rt.○○ for ○○ 術後X日目」から(手術日:ラベルが無い場合)
-    const surgMatch = ntext.match(/手術日[:：]\s*(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})/)
+    // 手術日の探索順: ①「手術日: 年/月/日」②DPC行「(術:… M/D)」③術式行「（M/DD、術後N日目）」「（M/DD手術予定）」
+    // ④江草形式の手術行。②③は年が無いので「今日から60日より先の未来なら前年」で補う。
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const SURG_FUTURE_LIMIT_DAYS = 60;
+    let surgDate = null;
+    const full = ntext.match(/手術日[:：]\s*(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})/)
       || ntext.match(/^[ \t]*(\d{4})\/(\d{1,2})\/(\d{1,2})[ \t]*[^\n]*\bfor\b[^\n]*$/m);
-    if (surgMatch){
-      const surgDate = new Date(parseInt(surgMatch[1], 10), parseInt(surgMatch[2], 10) - 1, parseInt(surgMatch[3], 10));
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      postOpDays = Math.round((today - surgDate) / 86400000);
+    const noYear = ntext.match(/^[ \t]*[▲●]?DPC[:：][^\n]*?[(（]術[:：][^)）\n]*?(\d{1,2})\/(\d{1,2})[)）]/m)
+      || ntext.match(/^[ \t]*術式[:：][^\n]*[（(](\d{1,2})\/(\d{1,2})(?:、術後|手術予定)/m);
+    if (full && (/手術日/.test(full[0]) || !noYear)){
+      surgDate = new Date(parseInt(full[1], 10), parseInt(full[2], 10) - 1, parseInt(full[3], 10));
+    } else if (noYear){
+      let y = today.getFullYear();
+      surgDate = new Date(y, parseInt(noYear[1], 10) - 1, parseInt(noYear[2], 10));
+      if (surgDate - today > SURG_FUTURE_LIMIT_DAYS * 86400000) surgDate = new Date(y - 1, surgDate.getMonth(), surgDate.getDate());
     }
+    if (surgDate) postOpDays = Math.round((today - surgDate) / 86400000);
 
     // 病棟/病室の見出しが無いファイル(病棟一覧CSVに未掲載・病室未割当等)は、PIDがあれば
     // 捨てずに「病棟未設定」グループで表示する。PIDも無ければ患者記録ではないので除外。
